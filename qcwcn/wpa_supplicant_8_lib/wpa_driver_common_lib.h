@@ -73,6 +73,7 @@ struct bss_info {
 
 enum get_info_cmd {
 	GETSTATSBSSINFO = 1,
+	SETCELLSWITCHMODE = 2,
 };
 
 struct resp_info {
