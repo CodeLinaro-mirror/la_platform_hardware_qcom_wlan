@@ -899,7 +899,7 @@ wifi_error nan_data_request_initiator(transaction_id id,
 {
     ALOGV("NAN_DP_REQUEST_INITIATOR");
     wifi_error ret;
-    struct nlattr *nlData, *nlCfgSecurity, *nlCfgQos;
+    struct nlattr *nlData, *nlCfgQos;
     NanCommand *nanCommand = NULL;
 
     if (msg == NULL)
@@ -970,19 +970,7 @@ wifi_error nan_data_request_initiator(transaction_id id,
             goto cleanup;
         }
     }
-    if (msg->ndp_cfg.security_cfg == NAN_DP_CONFIG_SECURITY) {
-        nlCfgSecurity =
-            nanCommand->attr_start(QCA_WLAN_VENDOR_ATTR_NDP_CONFIG_SECURITY);
-        if (!nlCfgSecurity)
-            goto cleanup;
 
-        if (nanCommand->put_u32(
-            QCA_WLAN_VENDOR_ATTR_NDP_SECURITY_TYPE,
-            0)) {
-            goto cleanup;
-        }
-        nanCommand->attr_end(nlCfgSecurity);
-    }
     if (msg->ndp_cfg.qos_cfg == NAN_DP_CONFIG_QOS) {
         nlCfgQos =
             nanCommand->attr_start(QCA_WLAN_VENDOR_ATTR_NDP_CONFIG_QOS);
@@ -1034,7 +1022,7 @@ wifi_error nan_data_indication_response(transaction_id id,
 {
     ALOGV("NAN_DP_INDICATION_RESPONSE");
     wifi_error ret;
-    struct nlattr *nlData, *nlCfgSecurity, *nlCfgQos;
+    struct nlattr *nlData, *nlCfgQos;
     NanCommand *nanCommand = NULL;
 
     if (msg == NULL)
@@ -1084,19 +1072,6 @@ wifi_error nan_data_indication_response(transaction_id id,
                 msg->app_info.ndp_app_info_len)) {
             goto cleanup;
         }
-    }
-    if (msg->ndp_cfg.security_cfg == NAN_DP_CONFIG_SECURITY) {
-        nlCfgSecurity =
-            nanCommand->attr_start(QCA_WLAN_VENDOR_ATTR_NDP_CONFIG_SECURITY);
-        if (!nlCfgSecurity)
-            goto cleanup;
-        /* Setting value to 0 for now */
-        if (nanCommand->put_u32(
-            QCA_WLAN_VENDOR_ATTR_NDP_SECURITY_TYPE,
-            0)) {
-            goto cleanup;
-        }
-        nanCommand->attr_end(nlCfgSecurity);
     }
     if (msg->ndp_cfg.qos_cfg == NAN_DP_CONFIG_QOS) {
         nlCfgQos =
@@ -1418,7 +1393,7 @@ u16 NANTLV_WriteTlv(pNanTlv pInTlv, u8 *pOutTlv)
     return writeLen;
 }
 
-u16 NANTLV_ReadTlv(u8 *pInTlv, pNanTlv pOutTlv)
+u16 NANTLV_ReadTlv(u8 *pInTlv, pNanTlv pOutTlv, int inBufferSize)
 {
     u16 readLen = 0;
 
@@ -1434,6 +1409,12 @@ u16 NANTLV_ReadTlv(u8 *pInTlv, pNanTlv pOutTlv)
         return readLen;
     }
 
+    if(inBufferSize < NAN_TLV_HEADER_SIZE) {
+        ALOGE("Insufficient length to process TLV header, inBufferSize = %d",
+              inBufferSize);
+        return readLen;
+    }
+
     pOutTlv->type = *pInTlv++;
     pOutTlv->type |= *pInTlv++ << 8;
     readLen += 2;
@@ -1443,6 +1424,12 @@ u16 NANTLV_ReadTlv(u8 *pInTlv, pNanTlv pOutTlv)
     pOutTlv->length = *pInTlv++;
     pOutTlv->length |= *pInTlv++ << 8;
     readLen += 2;
+
+    if(pOutTlv->length > inBufferSize - NAN_TLV_HEADER_SIZE) {
+        ALOGE("Insufficient length to process TLV header, inBufferSize = %d",
+              inBufferSize);
+        return readLen;
+    }
 
     ALOGV("READ TLV length %u, readLen %u", pOutTlv->length, readLen);
 

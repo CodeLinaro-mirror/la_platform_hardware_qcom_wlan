@@ -51,6 +51,13 @@ LOCAL_CLANG_CFLAGS := -Wno-pointer-bool-conversion
 
 LOCAL_CFLAGS += -Wall -Werror
 
+ifdef WIFI_DRIVER_STATE_CTRL_PARAM
+LOCAL_CFLAGS += -DWIFI_DRIVER_STATE_CTRL_PARAM=\"$(WIFI_DRIVER_STATE_CTRL_PARAM)\"
+ifdef WIFI_DRIVER_STATE_ON
+LOCAL_CFLAGS += -DWIFI_DRIVER_STATE_ON=\"$(WIFI_DRIVER_STATE_ON)\"
+endif
+endif
+
 LOCAL_C_INCLUDES += \
 	$(LOCAL_PATH) \
 	external/libnl/include \
@@ -101,7 +108,7 @@ LOCAL_SHARED_LIBRARIES += libnl_2
 LOCAL_C_INCLUDES += external/libnl-headers
 endif
 
-LOCAL_HEADER_LIBRARIES := libcutils_headers libutils_headers libwifi-hal-ctrl_headers
+LOCAL_HEADER_LIBRARIES := libcutils_headers libutils_headers libwifi-hal-ctrl_headers libcld80211_headers
 LOCAL_SANITIZE := cfi signed-integer-overflow unsigned-integer-overflow
 
 include $(BUILD_STATIC_LIBRARY)
@@ -122,6 +129,13 @@ endif
 
 # gscan.cpp: address of array 'cached_results[i].results' will always evaluate to 'true'
 LOCAL_CLANG_CFLAGS := -Wno-pointer-bool-conversion
+
+ifdef WIFI_DRIVER_STATE_CTRL_PARAM
+LOCAL_CFLAGS += -DWIFI_DRIVER_STATE_CTRL_PARAM=\"$(WIFI_DRIVER_STATE_CTRL_PARAM)\"
+ifdef WIFI_DRIVER_STATE_ON
+LOCAL_CFLAGS += -DWIFI_DRIVER_STATE_ON=\"$(WIFI_DRIVER_STATE_ON)\"
+endif
+endif
 
 LOCAL_C_INCLUDES += \
 	$(LOCAL_PATH) \
@@ -176,6 +190,6 @@ LOCAL_SHARED_LIBRARIES += libnl_2
 LOCAL_C_INCLUDES += external/libnl-headers
 endif
 
-LOCAL_HEADER_LIBRARIES := libcutils_headers libutils_headers libwifi-hal-ctrl_headers
+LOCAL_HEADER_LIBRARIES := libcutils_headers libutils_headers libwifi-hal-ctrl_headers libcld80211_headers
 LOCAL_SANITIZE := cfi integer_overflow
 include $(BUILD_SHARED_LIBRARY)

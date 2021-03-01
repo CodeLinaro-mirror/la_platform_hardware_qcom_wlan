@@ -33,6 +33,9 @@
 #include <errno.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <string>
+#include <net/if.h>
+#include <vector>
 #include "wificonfigcommand.h"
 
 /* Implementation of the API functions exposed in wifi_config.h */
@@ -530,6 +533,111 @@ cleanup:
     return ret;
 }
 
+wifi_error wifi_set_thermal_mitigation_mode(wifi_handle handle,
+                                            wifi_thermal_mode mode,
+                                            u32 completion_window)
+{
+    wifi_error ret;
+    WiFiConfigCommand *wifiConfigCommand;
+    struct nlattr *nlData;
+    u32 qca_vendor_thermal_level;
+    hal_info *info = getHalInfo(handle);
+
+    if (!info || info->num_interfaces < 1) {
+         ALOGE("%s: Error wifi_handle NULL or base wlan interface not present",
+               __FUNCTION__);
+         return WIFI_ERROR_UNKNOWN;
+    }
+
+    wifiConfigCommand = new WiFiConfigCommand(
+                            handle,
+                            1,
+                            OUI_QCA,
+                            QCA_NL80211_VENDOR_SUBCMD_THERMAL_CMD);
+    if (wifiConfigCommand == NULL) {
+        ALOGE("%s: Error, Failed to create wifiConfigCommand", __FUNCTION__);
+        return WIFI_ERROR_UNKNOWN;
+    }
+
+    /* Create the NL message. */
+    ret = wifiConfigCommand->create();
+    if (ret != WIFI_SUCCESS) {
+        ALOGE("Failed to create thermal vendor command, Error:%d", ret);
+        goto cleanup;
+    }
+
+    /* Set the interface Id of the message. */
+    if (wifiConfigCommand->put_u32(NL80211_ATTR_IFINDEX,
+                                   info->interfaces[0]->id)) {
+        ALOGE("%s: Failed to put iface id", __FUNCTION__);
+         goto cleanup;
+    }
+
+    nlData = wifiConfigCommand->attr_start(NL80211_ATTR_VENDOR_DATA);
+    if (!nlData) {
+        ALOGE("%s: Failed in attr_start for VENDOR_DATA, Error:%d",
+              __FUNCTION__, ret);
+        goto cleanup;
+    }
+
+    if (wifiConfigCommand->put_u32(QCA_WLAN_VENDOR_ATTR_THERMAL_CMD_VALUE,
+                             QCA_WLAN_VENDOR_ATTR_THERMAL_CMD_TYPE_SET_LEVEL)) {
+        ALOGE("Failed to put THERMAL_LEVEL command type");
+        goto cleanup;
+    }
+
+    switch(mode) {
+        case WIFI_MITIGATION_NONE:
+            qca_vendor_thermal_level = QCA_WLAN_VENDOR_THERMAL_LEVEL_NONE;
+            break;
+        case WIFI_MITIGATION_LIGHT:
+            qca_vendor_thermal_level = QCA_WLAN_VENDOR_THERMAL_LEVEL_LIGHT;
+            break;
+        case WIFI_MITIGATION_MODERATE:
+            qca_vendor_thermal_level = QCA_WLAN_VENDOR_THERMAL_LEVEL_MODERATE;
+            break;
+        case WIFI_MITIGATION_SEVERE:
+            qca_vendor_thermal_level = QCA_WLAN_VENDOR_THERMAL_LEVEL_SEVERE;
+            break;
+        case WIFI_MITIGATION_CRITICAL:
+            qca_vendor_thermal_level = QCA_WLAN_VENDOR_THERMAL_LEVEL_CRITICAL;
+            break;
+        case WIFI_MITIGATION_EMERGENCY:
+            qca_vendor_thermal_level = QCA_WLAN_VENDOR_THERMAL_LEVEL_EMERGENCY;
+            break;
+        default:
+            ALOGE("Unknown thermal mitigation level %d", mode);
+            ret = WIFI_ERROR_UNKNOWN;
+            goto cleanup;
+    }
+
+    if (wifiConfigCommand->put_u32(
+                             QCA_WLAN_VENDOR_ATTR_THERMAL_LEVEL,
+                             qca_vendor_thermal_level)) {
+        ALOGE("Failed to put thermal level");
+        goto cleanup;
+    }
+
+    if (wifiConfigCommand->put_u32(
+                             QCA_WLAN_VENDOR_ATTR_THERMAL_COMPLETION_WINDOW,
+                             completion_window)) {
+        ALOGE("Failed to put thermal completion window");
+        goto cleanup;
+    }
+    wifiConfigCommand->attr_end(nlData);
+
+    wifiConfigCommand->waitForRsp(false);
+    ret = wifiConfigCommand->requestEvent();
+    if (ret != WIFI_SUCCESS) {
+        ALOGE("Failed to set thermal level with Error: %d", ret);
+        goto cleanup;
+    }
+
+cleanup:
+    delete wifiConfigCommand;
+    return ret;
+}
+
 WiFiConfigCommand::WiFiConfigCommand(wifi_handle handle,
                                      int id, u32 vendor_id,
                                      u32 subcmd)
@@ -668,59 +776,174 @@ out:
     return res;
 }
 
-#ifdef WCNSS_QTI_AOSP
-wifi_error wifi_add_or_remove_virtual_intf(wifi_interface_handle iface,
-                                           const char* ifname, u32 iface_type,
-                                           bool create)
+
+
+static std::vector<std::string> added_ifaces;
+
+static bool is_dynamic_interface(const char * ifname)
+{
+    for (const auto& iface : added_ifaces) {
+        if (iface == std::string(ifname))
+            return true;
+    }
+    return false;
+}
+
+void wifi_cleanup_dynamic_ifaces(wifi_handle handle)
+{
+    int len = added_ifaces.size();
+    while (len--) {
+        wifi_virtual_interface_delete(handle, added_ifaces.front().c_str());
+    }
+    added_ifaces.clear(); // could be redundent. But to be on safe side.
+}
+
+static wifi_error wifi_set_interface_mode(wifi_handle handle,
+                                   const char* ifname,
+                                   u32 iface_type)
 {
     wifi_error ret;
     WiFiConfigCommand *wifiConfigCommand;
-    interface_info *ifaceInfo = getIfaceInfo(iface);
-    wifi_handle wifiHandle = getWifiHandle(iface);
 
-    ALOGD("%s: ifname=%s create=%u", __FUNCTION__, ifname, create);
+    ALOGD("%s: ifname=%s iface_type=%u", __FUNCTION__, ifname, iface_type);
 
-    wifiConfigCommand = new WiFiConfigCommand(wifiHandle, get_requestid(), 0, 0);
+    wifiConfigCommand = new WiFiConfigCommand(handle, get_requestid(), 0, 0);
     if (wifiConfigCommand == NULL) {
         ALOGE("%s: Error wifiConfigCommand NULL", __FUNCTION__);
         return WIFI_ERROR_UNKNOWN;
     }
 
-    if (create) {
-        nl80211_iftype type;
-        switch(iface_type) {
-            case 0:    /* IfaceType:STA */
-                type = NL80211_IFTYPE_STATION;
-                break;
-            case 1:    /* IfaceType:AP */
-                type = NL80211_IFTYPE_AP;
-                break;
-            case 2:    /* IfaceType:P2P */
-                type = NL80211_IFTYPE_P2P_DEVICE;
-                break;
-            default:
-                ALOGE("%s: Wrong interface type %u", __FUNCTION__, iface_type);
-                ret = WIFI_ERROR_UNKNOWN;
-                goto done;
-                break;
-        }
-        wifiConfigCommand->create_generic(NL80211_CMD_NEW_INTERFACE);
-        wifiConfigCommand->put_u32(NL80211_ATTR_IFINDEX, ifaceInfo->id);
-        wifiConfigCommand->put_string(NL80211_ATTR_IFNAME, ifname);
-        wifiConfigCommand->put_u32(NL80211_ATTR_IFTYPE, type);
-    } else {
-        wifiConfigCommand->create_generic(NL80211_CMD_DEL_INTERFACE);
-        wifiConfigCommand->put_u32(NL80211_ATTR_IFINDEX, if_nametoindex(ifname));
+    nl80211_iftype type;
+    switch(iface_type) {
+        case WIFI_INTERFACE_TYPE_STA:    /* IfaceType:STA */
+            type = NL80211_IFTYPE_STATION;
+            break;
+        case WIFI_INTERFACE_TYPE_AP:    /* IfaceType:AP */
+            type = NL80211_IFTYPE_AP;
+            break;
+        case WIFI_INTERFACE_TYPE_P2P:    /* IfaceType:P2P */
+            type = NL80211_IFTYPE_P2P_DEVICE;
+            break;
+        case WIFI_INTERFACE_TYPE_NAN:    /* IfaceType:NAN */
+            type = NL80211_IFTYPE_NAN;
+            break;
+        default:
+            ALOGE("%s: Wrong interface type %u", __FUNCTION__, iface_type);
+            ret = WIFI_ERROR_UNKNOWN;
+            goto done;
+            break;
     }
+    wifiConfigCommand->create_generic(NL80211_CMD_SET_INTERFACE);
+    wifiConfigCommand->put_u32(NL80211_ATTR_IFINDEX, if_nametoindex(ifname));
+    wifiConfigCommand->put_u32(NL80211_ATTR_IFTYPE, type);
 
     /* Send the NL msg. */
     wifiConfigCommand->waitForRsp(false);
     ret = wifiConfigCommand->requestEvent();
     if (ret != WIFI_SUCCESS) {
-        ALOGE("wifi_add_or_remove_virtual_intf: requestEvent Error:%d", ret);
+        ALOGE("%s: requestEvent Error:%d", __FUNCTION__, ret);
     }
 
 done:
+    delete wifiConfigCommand;
+    return ret;
+}
+
+wifi_error wifi_virtual_interface_create(wifi_handle handle,
+                                         const char* ifname,
+                                         wifi_interface_type iface_type)
+{
+    wifi_error ret;
+    WiFiConfigCommand *wifiConfigCommand;
+    hal_info *info = getHalInfo(handle);
+    if (!info || info->num_interfaces < 1) {
+        ALOGE("%s: Error wifi_handle NULL or base wlan interface not present", __FUNCTION__);
+        return WIFI_ERROR_UNKNOWN;
+    }
+
+    // Already exists and set interface mode only
+    if (if_nametoindex(ifname) != 0) {
+        return wifi_set_interface_mode(handle, ifname, iface_type);
+    }
+
+    ALOGD("%s: ifname=%s create", __FUNCTION__, ifname);
+
+    wifiConfigCommand = new WiFiConfigCommand(handle, get_requestid(), 0, 0);
+    if (wifiConfigCommand == NULL) {
+        ALOGE("%s: Error wifiConfigCommand NULL", __FUNCTION__);
+        return WIFI_ERROR_UNKNOWN;
+    }
+
+    nl80211_iftype type;
+    switch(iface_type) {
+        case WIFI_INTERFACE_TYPE_STA:    /* IfaceType:STA */
+            type = NL80211_IFTYPE_STATION;
+            break;
+        case WIFI_INTERFACE_TYPE_AP:    /* IfaceType:AP */
+            type = NL80211_IFTYPE_AP;
+            break;
+        case WIFI_INTERFACE_TYPE_P2P:    /* IfaceType:P2P */
+            type = NL80211_IFTYPE_P2P_DEVICE;
+            break;
+        case WIFI_INTERFACE_TYPE_NAN:    /* IfaceType:NAN */
+            type = NL80211_IFTYPE_NAN;
+            break;
+        default:
+            ALOGE("%s: Wrong interface type %u", __FUNCTION__, iface_type);
+            ret = WIFI_ERROR_UNKNOWN;
+            goto done;
+            break;
+    }
+    wifiConfigCommand->create_generic(NL80211_CMD_NEW_INTERFACE);
+    wifiConfigCommand->put_u32(NL80211_ATTR_IFINDEX,info->interfaces[0]->id);
+    wifiConfigCommand->put_string(NL80211_ATTR_IFNAME, ifname);
+    wifiConfigCommand->put_u32(NL80211_ATTR_IFTYPE, type);
+    /* Send the NL msg. */
+    wifiConfigCommand->waitForRsp(false);
+    ret = wifiConfigCommand->requestEvent();
+        if (ret != WIFI_SUCCESS) {
+            ALOGE("%s: requestEvent Error:%d", __FUNCTION__,ret);
+    }
+    // Update dynamic interface list
+    added_ifaces.push_back(std::string(ifname));
+
+done:
+    delete wifiConfigCommand;
+    return ret;
+}
+
+wifi_error wifi_virtual_interface_delete(wifi_handle handle,
+                                         const char* ifname)
+{
+    wifi_error ret;
+    WiFiConfigCommand *wifiConfigCommand;
+    if (!handle) {
+        ALOGE("%s: Error wifi_handle NULL", __FUNCTION__);
+        return WIFI_ERROR_UNKNOWN;
+    }
+
+    ALOGD("%s: ifname=%s delete", __FUNCTION__, ifname);
+    if (if_nametoindex(ifname) && !is_dynamic_interface(ifname)) {
+         // Do not remove interface if it was not added dynamically.
+         return WIFI_SUCCESS;
+    }
+    wifiConfigCommand = new WiFiConfigCommand(handle, get_requestid(), 0, 0);
+    if (wifiConfigCommand == NULL) {
+        ALOGE("%s: Error wifiConfigCommand NULL", __FUNCTION__);
+        return WIFI_ERROR_UNKNOWN;
+    }
+    wifiConfigCommand->create_generic(NL80211_CMD_DEL_INTERFACE);
+    wifiConfigCommand->put_u32(NL80211_ATTR_IFINDEX, if_nametoindex(ifname));
+    /* Send the NL msg. */
+    wifiConfigCommand->waitForRsp(false);
+    ret = wifiConfigCommand->requestEvent();
+    if (ret != WIFI_SUCCESS) {
+        ALOGE("%s: requestEvent Error:%d", __FUNCTION__,ret);
+    }
+    // Update dynamic interface list
+    added_ifaces.erase(std::remove(added_ifaces.begin(), added_ifaces.end(), std::string(ifname)),
+                           added_ifaces.end());
+
     delete wifiConfigCommand;
     return ret;
 }
@@ -737,8 +960,14 @@ wifi_error wifi_set_latency_mode(wifi_interface_handle iface,
     struct nlattr *nlData;
     interface_info *ifaceInfo = getIfaceInfo(iface);
     wifi_handle wifiHandle = getWifiHandle(iface);
+    hal_info *info = getHalInfo(wifiHandle);
 
     ALOGD("%s: %d", __FUNCTION__, mode);
+
+    if (!(info->supported_feature_set & WIFI_FEATURE_SET_LATENCY_MODE)) {
+        ALOGE("%s: Latency Mode is not supported by driver", __FUNCTION__);
+        return WIFI_ERROR_NOT_SUPPORTED;
+    };
 
     switch (mode) {
     case WIFI_LATENCY_MODE_NORMAL:
@@ -810,4 +1039,3 @@ cleanup:
     delete wifiConfigCommand;
     return (wifi_error)ret;
 }
-#endif

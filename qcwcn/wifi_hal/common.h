@@ -58,7 +58,9 @@
 
 #define MAC_ADDR_ARRAY(a) (a)[0], (a)[1], (a)[2], (a)[3], (a)[4], (a)[5]
 #define MAC_ADDR_STR "%02x:%02x:%02x:%02x:%02x:%02x"
+#ifndef BIT
 #define BIT(x) (1 << (x))
+#endif
 
 typedef int16_t s16;
 typedef int32_t s32;
@@ -170,6 +172,7 @@ typedef struct hal_info_s {
     /* mutex for the packet fate stats shared resource protection */
     pthread_mutex_t pkt_fate_stats_lock;
     struct rssi_monitor_event_handler_s *rssi_handlers;
+    struct radio_event_handler_s *radio_handlers;
     wifi_capa capa;
     struct cld80211_ctx *cldctx;
     bool apf_enabled;
@@ -194,6 +197,8 @@ wifi_error initializeGscanHandlers(hal_info *info);
 wifi_error cleanupGscanHandlers(hal_info *info);
 wifi_error initializeRSSIMonitorHandler(hal_info *info);
 wifi_error cleanupRSSIMonitorHandler(hal_info *info);
+wifi_error initializeRadioHandler(hal_info *info);
+wifi_error cleanupRadioHandler(hal_info *info);
 
 lowi_cb_table_t *getLowiCallbackTable(u32 requested_lowi_capabilities);
 
@@ -208,11 +213,10 @@ wifi_error wifi_stop_rssi_monitoring(wifi_request_id id, wifi_interface_handle i
 wifi_error wifi_set_radio_mode_change_handler(wifi_request_id id, wifi_interface_handle
         iface, wifi_radio_mode_change_handler eh);
 wifi_error mapKernelErrortoWifiHalError(int kern_err);
-#ifdef WCNSS_QTI_AOSP
-wifi_error wifi_add_or_remove_virtual_intf(wifi_interface_handle iface,
-                                           const char* ifname, u32 iface_type,
-                                           bool create);
-#endif
+void wifi_cleanup_dynamic_ifaces(wifi_handle handle);
+wifi_error wifi_virtual_interface_create(wifi_handle handle, const char* ifname,
+                                         wifi_interface_type iface_type);
+wifi_error wifi_virtual_interface_delete(wifi_handle handle, const char* ifname);
 // some common macros
 
 #define min(x, y)       ((x) < (y) ? (x) : (y))

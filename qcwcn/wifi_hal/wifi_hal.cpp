@@ -25,7 +25,7 @@
 #include <netpacket/packet.h>
 #include <linux/filter.h>
 #include <linux/errqueue.h>
-
+#include <linux-private/linux/fib_rules.h>
 #include <linux/pkt_sched.h>
 #include <netlink/object-api.h>
 #include <netlink/netlink.h>
@@ -578,10 +578,10 @@ wifi_error init_wifi_vendor_hal_func_table(wifi_hal_fn *fn) {
     fn->wifi_set_radio_mode_change_handler = wifi_set_radio_mode_change_handler;
     /* Customers will uncomment when they want to set qpower*/
     //fn->wifi_set_qpower = wifi_set_qpower;
-#ifdef WCNSS_QTI_AOSP
-    fn->wifi_add_or_remove_virtual_intf = wifi_add_or_remove_virtual_intf;
+    fn->wifi_virtual_interface_create = wifi_virtual_interface_create;
+    fn->wifi_virtual_interface_delete = wifi_virtual_interface_delete;
     fn->wifi_set_latency_mode = wifi_set_latency_mode;
-#endif
+    fn->wifi_set_thermal_mitigation_mode = wifi_set_thermal_mitigation_mode;
 
     return WIFI_SUCCESS;
 }
@@ -889,6 +889,12 @@ wifi_error wifi_initialize(wifi_handle *handle)
         goto unload;
     }
 
+    ret = initializeRadioHandler(info);
+    if (ret != WIFI_SUCCESS) {
+        ALOGE("Initializing Radio Event handler Failed");
+        goto unload;
+    }
+
     ret = wifi_init_tcp_param_change_event_handler(iface_handle);
     if (ret != WIFI_SUCCESS) {
         ALOGE("Initializing TCP param change event Handler Failed");
@@ -928,6 +934,7 @@ unload:
             wifi_logger_ring_buffers_deinit(info);
             cleanupGscanHandlers(info);
             cleanupRSSIMonitorHandler(info);
+            cleanupRadioHandler(info);
 	    cleanupTCPParamCommand(info);
             free(info->event_cb);
             if (info->driver_supported_features.flags) {
@@ -941,12 +948,51 @@ unload:
     return ret;
 }
 
+#ifdef WIFI_DRIVER_STATE_CTRL_PARAM
+static int wifi_update_driver_state(const char *state) {
+    struct timespec ts;
+    int len, fd, ret = 0, count = 5;
+    ts.tv_sec = 0;
+    ts.tv_nsec = 200 * 1000000L;
+    do {
+        if (access(WIFI_DRIVER_STATE_CTRL_PARAM, W_OK) == 0)
+            break;
+        nanosleep(&ts, (struct timespec *)NULL);
+    } while (--count > 0); /* wait at most 1 second for completion. */
+    if (count == 0) {
+        ALOGE("Failed to access driver state control param %s, %d at %s",
+              strerror(errno), errno, WIFI_DRIVER_STATE_CTRL_PARAM);
+        return -1;
+    }
+    fd = TEMP_FAILURE_RETRY(open(WIFI_DRIVER_STATE_CTRL_PARAM, O_WRONLY));
+    if (fd < 0) {
+        ALOGE("Failed to open driver state control param at %s",
+              WIFI_DRIVER_STATE_CTRL_PARAM);
+        return -1;
+    }
+    len = strlen(state) + 1;
+    if (TEMP_FAILURE_RETRY(write(fd, state, len)) != len) {
+        ALOGE("Failed to write driver state control param at %s",
+              WIFI_DRIVER_STATE_CTRL_PARAM);
+        ret = -1;
+    }
+    close(fd);
+    return ret;
+}
+#endif
+
 wifi_error wifi_wait_for_driver_ready(void)
 {
     // This function will wait to make sure basic client netdev is created
     // Function times out after 10 seconds
     int count = (POLL_DRIVER_MAX_TIME_MS * 1000) / POLL_DRIVER_DURATION_US;
     FILE *fd;
+
+#if defined(WIFI_DRIVER_STATE_CTRL_PARAM) && defined(WIFI_DRIVER_STATE_ON)
+    if (wifi_update_driver_state(WIFI_DRIVER_STATE_ON) < 0) {
+        return WIFI_ERROR_UNKNOWN;
+    }
+#endif
 
     do {
         if ((fd = fopen("/sys/class/net/wlan0", "r")) != NULL) {
@@ -1022,6 +1068,7 @@ static void internal_cleaned_up_handler(wifi_handle handle)
     wifi_logger_ring_buffers_deinit(info);
     cleanupGscanHandlers(info);
     cleanupRSSIMonitorHandler(info);
+    cleanupRadioHandler(info);
     cleanupTCPParamCommand(info);
 
     if (info->num_event_cb)
@@ -1064,6 +1111,8 @@ void wifi_cleanup(wifi_handle handle, wifi_cleaned_up_handler handler)
 
     hal_info *info = getHalInfo(handle);
     info->cleaned_up_handler = handler;
+    // Remove the dynamically created interface during wifi cleanup.
+    wifi_cleanup_dynamic_ifaces(handle);
 
     TEMP_FAILURE_RETRY(write(info->exit_sockets[0], "E", 1));
 
@@ -1080,6 +1129,11 @@ static int validate_cld80211_msg(nlmsghdr *nlh, int family, int cmd)
     struct genlmsghdr *hdr;
     hdr = (genlmsghdr *)nlmsg_data(nlh);
 
+    if (nlh->nlmsg_len > DEFAULT_PAGE_SIZE - sizeof(wifihal_ctrl_req_t))
+    {
+      ALOGE("%s: Invalid nlmsg length", __FUNCTION__);
+      return -1;
+    }
     if(hdr->cmd == WLAN_NL_MSG_OEM)
     {
       ALOGV("%s: FAMILY ID : %d ,NL CMD : %d received", __FUNCTION__,
@@ -1103,6 +1157,11 @@ static int validate_genl_msg(nlmsghdr *nlh, int family, int cmd)
     struct genlmsghdr *hdr;
     hdr = (genlmsghdr *)nlmsg_data(nlh);
 
+    if (nlh->nlmsg_len > DEFAULT_PAGE_SIZE - sizeof(wifihal_ctrl_req_t))
+    {
+      ALOGE("%s: Invalid nlmsg length", __FUNCTION__);
+      return -1;
+    }
     if(hdr->cmd == NL80211_CMD_FRAME ||
        hdr->cmd == NL80211_CMD_REGISTER_ACTION)
     {
@@ -1138,6 +1197,12 @@ static int send_nl_data(wifi_handle handle, wifihal_ctrl_req_t *ctrl_msg)
        goto nl_out;
     }
 
+    if (ctrl_msg->data_len > nlmsg_get_max_size(msg))
+    {
+        ALOGE("%s: Invalid ctrl msg length \n", __FUNCTION__);
+        retval = -1;
+        goto nl_out;
+    }
     memcpy((char *)msg->nm_nlh, (char *)ctrl_msg->data, ctrl_msg->data_len);
 
    if(ctrl_msg->family_name == GENERIC_NL_FAMILY)
@@ -1214,9 +1279,17 @@ static int register_monitor_sock(wifi_handle handle, wifihal_ctrl_req_t *ctrl_ms
        genlh = (struct genlmsghdr *)nlmsg_data(nlh);
        struct nlattr *nlattrs[NL80211_ATTR_MAX + 1];
 
-       nla_parse(nlattrs, NL80211_ATTR_MAX, genlmsg_attrdata(genlh, 0),
-                 genlmsg_attrlen(genlh, 0), NULL);
-
+       if (nlh->nlmsg_len > DEFAULT_PAGE_SIZE - sizeof(*ctrl_msg))
+       {
+         ALOGE("%s: Invalid nlmsg length", __FUNCTION__);
+         return -1;
+       }
+       if (nla_parse(nlattrs, NL80211_ATTR_MAX, genlmsg_attrdata(genlh, 0),
+                 genlmsg_attrlen(genlh, 0), NULL))
+       {
+         ALOGE("unable to parse nl attributes");
+         return -1;
+       }
        if (!nlattrs[NL80211_ATTR_FRAME_TYPE])
        {
          ALOGD("No Valid frame type");
@@ -1306,6 +1379,12 @@ static int register_monitor_sock(wifi_handle handle, wifihal_ctrl_req_t *ctrl_ms
 
     if(attach)
     {
+       if (ctrl_msg->monsock_len > sizeof(struct sockaddr_un))
+       {
+         ALOGE("%s: Invalid monitor socket length \n", __FUNCTION__);
+         return -3;
+       }
+
        nreg = (wifihal_mon_sock_t *)malloc(sizeof(*reg) + match_len);
         if (!nreg)
            return -1;
@@ -1583,18 +1662,17 @@ static int internal_valid_message_handler(nl_msg *msg, void *arg)
          ALOGD("No Frame body");
          return WIFI_SUCCESS;
        }
-
-       ctrl_evt = (wifihal_ctrl_event_t *)malloc(DEFAULT_PAGE_SIZE);
+       ctrl_evt = (wifihal_ctrl_event_t *)malloc(sizeof(*ctrl_evt) + nlh->nlmsg_len);
        if(ctrl_evt == NULL)
        {
          ALOGE("Memory allocation failure");
          return -1;
        }
-       memset((char *)ctrl_evt, 0, DEFAULT_PAGE_SIZE);
+       memset((char *)ctrl_evt, 0, sizeof(*ctrl_evt) + nlh->nlmsg_len);
        ctrl_evt->family_name = GENERIC_NL_FAMILY;
        ctrl_evt->cmd_id = cmd;
-       ctrl_evt->data_len = msg->nm_nlh->nlmsg_len;
-       memcpy(ctrl_evt->data, (char *)msg->nm_nlh, ctrl_evt->data_len);
+       ctrl_evt->data_len = nlh->nlmsg_len;
+       memcpy(ctrl_evt->data, (char *)nlh, ctrl_evt->data_len);
 
 
        buff = (char *)nla_data(nlattrs[NL80211_ATTR_FRAME]) + 24; //! Size of Wlan80211FrameHeader
@@ -1753,7 +1831,14 @@ static int wifi_get_multicast_id(wifi_handle handle, const char *name,
 
 static bool is_wifi_interface(const char *name)
 {
-    if (strncmp(name, "wlan", 4) != 0 && strncmp(name, "p2p", 3) != 0) {
+    // filter out bridge interface
+    if (strstr(name, "br") != NULL) {
+        return false;
+    }
+
+    if (strncmp(name, "wlan", 4) != 0 && strncmp(name, "p2p", 3) != 0
+        && strncmp(name, "wifi", 4) != 0
+        && strncmp(name, "swlan", 5) != 0) {
         /* not a wifi interface; ignore it */
         return false;
     } else {
