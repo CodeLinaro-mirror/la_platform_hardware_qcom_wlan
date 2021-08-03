@@ -39,8 +39,39 @@
 #define WPA_PS_DISABLED		1
 #define UNUSED(x)	(void)(x)
 #define NL80211_ATTR_MAX_INTERNAL 256
+#define CSI_STATUS_REJECTED      -1
+#define CSI_STATUS_SUCCESS        0
+#define ENHANCED_CFR_VER          2
+#define CSI_GROUP_BITMAP          1
+#define CSI_DEFAULT_GROUP_ID      0
+#define CSI_FC_STYPE_BEACON       8
+#define CSI_MGMT_BEACON           (1<<WLAN_FC_STYPE_BEACON)
 
 /* ============ nl80211 driver extensions ===========  */
+enum csi_state {
+	CSI_STATE_STOP = 0,
+	CSI_STATE_START,
+};
+
+struct csi_global_params {
+	struct i802_bss *bss;
+	enum csi_state current_state;
+	char connected_bssid[MAC_ADDR_LEN];
+	int transport_mode;
+};
+
+static struct csi_global_params g_csi_param = {0};
+
+static char *get_next_arg(char *cmd)
+{
+	char *pos = cmd;
+
+	while (*pos != ' ' && *pos != '\0')
+		pos++;
+
+	return pos;
+}
+
 static int wpa_driver_cmd_set_ani_level(struct i802_bss *bss, int mode, int ofdmlvl)
 {
 	struct wpa_driver_nl80211_data *drv = bss->drv;
@@ -69,6 +100,64 @@ static int wpa_driver_cmd_set_ani_level(struct i802_bss *bss, int mode, int ofdm
 		return 0;
 	wpa_printf(MSG_ERROR, "%s: Failed set_ani_level, ofdmlvl=%d, ret=%d",
 		   __FUNCTION__, ofdmlvl, ret);
+	return ret;
+}
+
+static int wpa_driver_cmd_set_congestion_report(struct i802_bss *bss, char *cmd)
+{
+	struct wpa_driver_nl80211_data *drv = bss->drv;
+	struct nl_msg *msg;
+	struct nlattr *params = NULL;
+	char *endptr = NULL;
+	int ret;
+	int enable = -1, threshold = -1, interval = -1;
+
+	wpa_printf(MSG_INFO, "%s enter", __FUNCTION__);
+
+	enable = strtol(cmd, &endptr, 10);
+	if (enable != 0 && enable != 1) {
+		wpa_printf(MSG_ERROR, "%s: invalid enable arg %d", __FUNCTION__, enable);
+		return -EINVAL;
+	}
+
+	if (!(msg = nl80211_drv_msg(drv, 0, NL80211_CMD_VENDOR)) ||
+		nla_put_u32(msg, NL80211_ATTR_VENDOR_ID, OUI_QCA) ||
+		nla_put_u32(msg, NL80211_ATTR_VENDOR_SUBCMD,
+		  QCA_NL80211_VENDOR_SUBCMD_MEDIUM_ASSESS) ||
+		!(params = nla_nest_start(msg, NL80211_ATTR_VENDOR_DATA)) ||
+		nla_put_u8(msg, QCA_WLAN_VENDOR_ATTR_MEDIUM_ASSESS_TYPE,
+		  QCA_WLAN_MEDIUM_ASSESS_CONGESTION_REPORT) ||
+		nla_put_u8(msg,
+		  QCA_WLAN_VENDOR_ATTR_MEDIUM_ASSESS_CONGESTION_REPORT_ENABLE,
+		  enable)) {
+			nlmsg_free(msg);
+			return -1;
+	}
+	if (enable == 1) {
+		if (!(*endptr) ||
+		  ((threshold = strtol(endptr, &endptr, 10)) < 0 || threshold > 100) ||
+		  !(*endptr) ||
+		  ((interval = strtol(endptr, &endptr, 10)) < 1 || interval > 255)) {
+			wpa_printf(MSG_ERROR, "%s: args less or invalid", __FUNCTION__);
+			nlmsg_free(msg);
+			return -EINVAL;
+		}
+		if (nla_put_u8(msg,
+		  QCA_WLAN_VENDOR_ATTR_MEDIUM_ASSESS_CONGESTION_REPORT_THRESHOLD,
+		  threshold) || nla_put_u8(msg,
+		  QCA_WLAN_VENDOR_ATTR_MEDIUM_ASSESS_CONGESTION_REPORT_INTERVAL,
+		  interval)) {
+			nlmsg_free(msg);
+			return -1;
+		}
+	}
+	nla_nest_end(msg, params);
+	ret = send_and_recv_msgs(drv, msg, NULL, NULL, NULL, NULL);
+	wpa_printf(MSG_INFO, "%s: set congestion report: enable=%d, threshold=%d,"
+			"interval=%d", __FUNCTION__, enable, threshold, interval);
+	if (!ret)
+		return 0;
+	wpa_printf(MSG_ERROR, "%s: Failed set congestion report, ret=%d", __FUNCTION__, ret);
 	return ret;
 }
 
@@ -205,7 +294,7 @@ static int parse_station_info(struct resp_info *info, struct nlattr *vendata,
 			      int datalen)
 {
 	struct bss_info data;
-	struct nlattr *tb_vendor[QCA_WLAN_VENDOR_ATTR_GET_STATION_INFO_MAX + 1];
+	struct nlattr *tb_vendor[GET_STATION_INFO_MAX + 1];
 	struct nlattr *attr, *attr1, *attr2;
 	u8 *beacon_ies = NULL;
 	size_t beacon_ies_len = 0;
@@ -217,7 +306,7 @@ static int parse_station_info(struct resp_info *info, struct nlattr *vendata,
 	data.oui[1] = ((OUI_QCA)>>8) & 0xFF;
 	data.oui[2] = ((OUI_QCA)>>16) & 0xFF;
 
-	nla_parse(tb_vendor, QCA_WLAN_VENDOR_ATTR_GET_STATION_INFO_MAX,
+	nla_parse(tb_vendor, GET_STATION_INFO_MAX,
 		  vendata, datalen, NULL);
 
 	attr = tb_vendor[QCA_WLAN_VENDOR_ATTR_GET_STATION_LINK_INFO_ATTR];
@@ -304,19 +393,18 @@ static int parse_station_info(struct resp_info *info, struct nlattr *vendata,
 		   "QCA_WLAN_VENDOR_ATTR_GET_STATION_LINK_INFO_ATTR not found");
 	}
 
-	if (tb_vendor[QCA_WLAN_VENDOR_ATTR_GET_STATION_INFO_AKM]) {
+	if (tb_vendor[GET_STATION_INFO_AKM]) {
 		data.akm = nla_get_u32(
-			tb_vendor[QCA_WLAN_VENDOR_ATTR_GET_STATION_INFO_AKM]);
+			tb_vendor[GET_STATION_INFO_AKM]);
 	}
 
-	if (tb_vendor[QCA_WLAN_VENDOR_ATTR_802_11_MODE]) {
+	if (tb_vendor[QCA_WLAN_VENDOR_ATTR_802_11_MODE])
 		data.mode_80211 = nla_get_u32(
 			tb_vendor[QCA_WLAN_VENDOR_ATTR_802_11_MODE]);
-	}
 
-	attr = tb_vendor[QCA_WLAN_VENDOR_ATTR_GET_STATION_INFO_VHT_OPERATION];
-	attr1 = tb_vendor[QCA_WLAN_VENDOR_ATTR_GET_STATION_INFO_HT_OPERATION];
-	attr2 = tb_vendor[QCA_WLAN_VENDOR_ATTR_GET_STATION_INFO_HE_OPERATION];
+	attr = tb_vendor[GET_STATION_INFO_VHT_OPERATION];
+	attr1 = tb_vendor[GET_STATION_INFO_HT_OPERATION];
+	attr2 = tb_vendor[GET_STATION_INFO_HE_OPERATION];
 	if (attr) {
 		struct ieee80211_vht_operation *info = nla_data(attr);
 
@@ -410,7 +498,7 @@ static int parse_station_info(struct resp_info *info, struct nlattr *vendata,
 	}
 
 parse_beacon_ies:
-	attr = tb_vendor[QCA_WLAN_VENDOR_ATTR_GET_STATION_INFO_BEACON_IES];
+	attr = tb_vendor[GET_STATION_INFO_BEACON_IES];
 	if (attr) {
 		beacon_ies = nla_data(attr);
 
@@ -421,9 +509,9 @@ parse_beacon_ies:
 		}
 	}
 
-	if (tb_vendor[QCA_WLAN_VENDOR_ATTR_GET_STATION_INFO_DRIVER_DISCONNECT_REASON]) {
+	if (tb_vendor[GET_STATION_INFO_DRIVER_DISCONNECT_REASON]) {
 		data.disc_reasn_code = nla_get_u32(tb_vendor[
-			QCA_WLAN_VENDOR_ATTR_GET_STATION_INFO_DRIVER_DISCONNECT_REASON]);
+			GET_STATION_INFO_DRIVER_DISCONNECT_REASON]);
 	}
 	snprintf(info->reply_buf, info->reply_buf_len,
 		 "%02x%02x%02x %s %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %u %s",
@@ -561,15 +649,32 @@ int wpa_driver_nl80211_oem_event(struct wpa_driver_nl80211_data *drv,
 	return ret;
 }
 
+static int wpa_driver_restart_csi(struct i802_bss *bss, int *status);
+
 int wpa_driver_nl80211_driver_event(struct wpa_driver_nl80211_data *drv,
 					   u32 vendor_id, u32 subcmd,
 					   u8 *data, size_t len)
 {
 	int ret = -1;
+	int status = -1;
+	struct i802_bss *bss;
 	switch(subcmd) {
 		case QCA_NL80211_VENDOR_SUBCMD_CONFIG_TWT:
 			ret = wpa_driver_nl80211_oem_event(drv, vendor_id, subcmd,
 					data, len);
+			break;
+		case QCA_NL80211_VENDOR_SUBCMD_KEY_MGMT_ROAM_AUTH:
+			if(g_csi_param.current_state == CSI_STATE_START) {
+				bss = get_bss_ifindex(drv, drv->ifindex);
+				if(bss == NULL) {
+					wpa_printf(MSG_DEBUG, "%s: bss is NULL",
+							__func__);
+					break;
+				}
+				if(wpa_driver_restart_csi(bss, &status))
+					wpa_printf(MSG_DEBUG, "csi_restart failed %d",
+						   status);
+			}
 			break;
 		default:
 			break;
@@ -827,7 +932,33 @@ void ap_sta_copy_channels(const u8 *supp_channels,
 		  supp_channels_len);
 }
 
-static void parse_assoc_req_ies(const u8 *ies, int ies_len) {
+static void parse_ext_ie(const u8 *ie, int ie_len)
+{
+	u8 ext_id;
+
+	if (ie_len < 1) {
+		wpa_printf(MSG_ERROR,"parse error, ie_len = %d", ie_len);
+		return;
+	}
+
+	ext_id = *ie++;
+	ie_len--;
+
+	switch (ext_id) {
+	case WLAN_EID_EXT_HE_CAPABILITIES:
+		wpa_printf(MSG_INFO,"HE supported");
+		g_sta_info.flags.he_supported = 1;
+		break;
+	default:
+		wpa_printf(MSG_DEBUG,"ext_id = %d", ext_id);
+		break;
+	}
+
+	return;
+}
+
+static void parse_assoc_req_ies(const u8 *ies, int ies_len)
+{
 	int left = ies_len;
 	const u8 *pos = ies;
 
@@ -850,6 +981,17 @@ static void parse_assoc_req_ies(const u8 *ies, int ies_len) {
 		case WLAN_EID_SUPPORTED_CHANNELS:
 			ap_sta_copy_channels(pos, ie_len);
 			break;
+		case WLAN_EID_HT_CAP:
+			wpa_printf(MSG_INFO,"HT supported");
+			g_sta_info.flags.ht_supported = 1;
+			break;
+		case WLAN_EID_VHT_CAP:
+			wpa_printf(MSG_INFO,"VHT supported");
+			g_sta_info.flags.vht_supported = 1;
+			break;
+		case WLAN_EID_EXTENSION:
+			parse_ext_ie(pos, ie_len);
+			break;
 		default:
 			break;
 		}
@@ -860,7 +1002,6 @@ static void parse_assoc_req_ies(const u8 *ies, int ies_len) {
 
 	if (left)
 		wpa_printf(MSG_ERROR,"parse error, left = %d", left);
-	return;
 }
 
 void op_class_band_conversion(u8 *op_classes) {
@@ -903,7 +1044,69 @@ void supp_channels_band_conversion(u8 *supp_channels) {
 	}
 }
 
-static int get_sta_info_handler(struct nl_msg *msg, void *arg)
+static int fill_sta_info(struct remote_sta_info *sta_info,
+			   char *buf, size_t buf_len)
+{
+	int ret;
+	if (sta_info->num_sta == 1) {
+		if (sta_info->show_band)
+			ret = snprintf(buf, buf_len,
+				 "%02x:%02x:%02x:%02x:%02x:%02x %d %d %04x %02x:%02x:%02x %d %d %d %d %d %d %d %d %d %s",
+				 sta_info->mac_addr[0], sta_info->mac_addr[1],
+				 sta_info->mac_addr[2], sta_info->mac_addr[3],
+				 sta_info->mac_addr[4], sta_info->mac_addr[5],
+				 sta_info->rx_retry_pkts, sta_info->rx_bcmc_pkts,
+				 sta_info->cap, sta_info->mac_addr[0],
+				 sta_info->mac_addr[1], sta_info->mac_addr[2],
+				 sta_info->freq,
+				 sta_info->bandwidth,
+				 sta_info->rssi,
+				 sta_info->data_rate,
+				 sta_info->dot11_mode,
+				 -1,
+				 -1,
+				 sta_info->reason,
+				 sta_info->supported_mode,
+				 sta_info->country);
+		else
+			ret = snprintf(buf, buf_len,
+				 "%02x:%02x:%02x:%02x:%02x:%02x %d %d %04x %02x:%02x:%02x %d %d %d %d %d %d %d %d %u %s",
+				 sta_info->mac_addr[0], sta_info->mac_addr[1],
+				 sta_info->mac_addr[2], sta_info->mac_addr[3],
+				 sta_info->mac_addr[4], sta_info->mac_addr[5],
+				 sta_info->rx_retry_pkts, sta_info->rx_bcmc_pkts,
+				 sta_info->cap, sta_info->mac_addr[0],
+				 sta_info->mac_addr[1], sta_info->mac_addr[2],
+				 sta_info->freq,
+				 sta_info->bandwidth,
+				 sta_info->rssi,
+				 sta_info->data_rate,
+				 sta_info->supported_mode,
+				 -1,
+				 -1,
+				 sta_info->reason,
+				 sta_info->supported_band,
+				 sta_info->country);
+	} else {
+		ret = snprintf(buf, buf_len,
+			 "%d %d %04x %d %d %d %d %d %d %d %d %d %s",
+			 sta_info->rx_retry_pkts, sta_info->rx_bcmc_pkts,
+			 -1, /* CAP */
+			 -1, /* Channel */
+			 -1, /* Bandwidth */
+			 -1, /* Rssi */
+			 -1, /* Data_rate */
+			 -1, /* 11_mode */
+			 -1,
+			 -1,
+			 -1, /* Reason */
+			 -1, /* Support_mode */
+			 sta_info->country);
+	}
+	return ret;
+}
+
+static int get_sta_info_legacy_handler(struct nl_msg *msg, void *arg)
 {
 	struct genlmsghdr *msg_hdr;
 	struct nlattr *tb[NL80211_ATTR_MAX_INTERNAL + 1];
@@ -914,8 +1117,8 @@ static int get_sta_info_handler(struct nl_msg *msg, void *arg)
 	u8 *assoc_req_ie = NULL;
 	size_t assoc_req_ie_len = 0;
 
-	if (!info || !info->reply_buf) {
-		wpa_printf(MSG_ERROR,"Invalid reply_buf");
+	if (!info) {
+		wpa_printf(MSG_ERROR,"Invalid arg");
 		return -1;
 	}
 
@@ -928,7 +1131,7 @@ static int get_sta_info_handler(struct nl_msg *msg, void *arg)
 		  genlmsg_attrlen(msg_hdr, 0), NULL);
 
 	if (!tb[NL80211_ATTR_VENDOR_DATA]) {
-		wpa_printf(MSG_ERROR,"NL80211_ATTR_VENDOR_DATA not found");
+		wpa_printf(MSG_ERROR,"NL80211_ATTR_VENDOR_DATA parse error");
 		return -1;
 	}
 
@@ -996,27 +1199,27 @@ static int get_sta_info_handler(struct nl_msg *msg, void *arg)
 		}
 	}
 
-	if (tb_vendor[QCA_WLAN_VENDOR_ATTR_GET_STATION_INFO_REMOTE_LAST_RX_RATE]) {
+	if (tb_vendor[GET_STATION_INFO_REMOTE_LAST_RX_RATE]) {
 		g_sta_info.data_rate =
-			nla_get_u32(tb_vendor[QCA_WLAN_VENDOR_ATTR_GET_STATION_INFO_REMOTE_LAST_RX_RATE]);
+			nla_get_u32(tb_vendor[GET_STATION_INFO_REMOTE_LAST_RX_RATE]);
 		wpa_printf(MSG_INFO,"data_rate %d", g_sta_info.data_rate);
 	}
 
-	if (tb_vendor[QCA_WLAN_VENDOR_ATTR_GET_STATION_INFO_REMOTE_RX_RETRY_COUNT]) {
+	if (tb_vendor[GET_STATION_INFO_REMOTE_RX_RETRY_COUNT]) {
 		g_sta_info.rx_retry_pkts +=
-			nla_get_u32(tb_vendor[QCA_WLAN_VENDOR_ATTR_GET_STATION_INFO_REMOTE_RX_RETRY_COUNT]);
+			nla_get_u32(tb_vendor[GET_STATION_INFO_REMOTE_RX_RETRY_COUNT]);
 		wpa_printf(MSG_INFO,"rx_retry_pkts %d", g_sta_info.rx_retry_pkts);
 	}
 
-	if (tb_vendor[QCA_WLAN_VENDOR_ATTR_GET_STATION_INFO_REMOTE_RX_BC_MC_COUNT]) {
+	if (tb_vendor[GET_STATION_INFO_REMOTE_RX_BC_MC_COUNT]) {
 		g_sta_info.rx_bcmc_pkts +=
-			nla_get_u32(tb_vendor[QCA_WLAN_VENDOR_ATTR_GET_STATION_INFO_REMOTE_RX_BC_MC_COUNT]);
+			nla_get_u32(tb_vendor[GET_STATION_INFO_REMOTE_RX_BC_MC_COUNT]);
 		wpa_printf(MSG_INFO,"rx_bcmc_pkts %d", g_sta_info.rx_bcmc_pkts);
 	}
 
-	if (tb_vendor[QCA_WLAN_VENDOR_ATTR_GET_STATION_INFO_REMOTE_CH_WIDTH]) {
+	if (tb_vendor[GET_STATION_INFO_REMOTE_CH_WIDTH]) {
 		g_sta_info.bandwidth =
-			nla_get_u8(tb_vendor[QCA_WLAN_VENDOR_ATTR_GET_STATION_INFO_REMOTE_CH_WIDTH]);
+			nla_get_u8(tb_vendor[GET_STATION_INFO_REMOTE_CH_WIDTH]);
 		wpa_printf(MSG_INFO,"bandwidth %d", g_sta_info.bandwidth);
 	}
 
@@ -1026,95 +1229,178 @@ static int get_sta_info_handler(struct nl_msg *msg, void *arg)
 		wpa_printf(MSG_INFO,"dot11_mode %d", g_sta_info.dot11_mode);
 	}
 
-	if (tb_vendor[QCA_WLAN_VENDOR_ATTR_GET_STATION_INFO_REMOTE_SUPPORTED_MODE]) {
+	if (tb_vendor[GET_STATION_INFO_REMOTE_SUPPORTED_MODE]) {
 		g_sta_info.supported_mode =
-			nla_get_u8(tb_vendor[QCA_WLAN_VENDOR_ATTR_GET_STATION_INFO_REMOTE_SUPPORTED_MODE]);
+			nla_get_u8(tb_vendor[GET_STATION_INFO_REMOTE_SUPPORTED_MODE]);
 		wpa_printf(MSG_INFO,"supported_mode %d", g_sta_info.supported_mode);
 	}
 
-	if (tb_vendor[QCA_WLAN_VENDOR_ATTR_GET_STATION_INFO_ASSOC_REQ_IES]) {
+	if (tb_vendor[GET_STATION_INFO_ASSOC_REQ_IES]) {
 		assoc_req_ie =
-			nla_data(tb_vendor[QCA_WLAN_VENDOR_ATTR_GET_STATION_INFO_ASSOC_REQ_IES]);
+			nla_data(tb_vendor[GET_STATION_INFO_ASSOC_REQ_IES]);
 		assoc_req_ie_len =
-			nla_len(tb_vendor[QCA_WLAN_VENDOR_ATTR_GET_STATION_INFO_ASSOC_REQ_IES]);
+			nla_len(tb_vendor[GET_STATION_INFO_ASSOC_REQ_IES]);
 	}
+
 	parse_assoc_req_ies(assoc_req_ie, assoc_req_ie_len);
 
 	if (g_sta_info.supp_op_classes) {
 		op_class_band_conversion(g_sta_info.supp_op_classes);
+		g_sta_info.show_band = true;
 	}
 	else if (g_sta_info.supp_channels) {
 		supp_channels_band_conversion(g_sta_info.supp_channels);
+		g_sta_info.show_band = true;
 	}
 	else
 		wpa_printf(MSG_ERROR,"supp_op_classes and supp_channels both are null");
 
-	g_sta_info.num_received_sta_info++;
+	g_sta_info.num_received_vendor_sta_info++;
 
-	if (g_sta_info.num_received_sta_info == g_sta_info.num_sta) {
-		if (g_sta_info.num_sta == 1 && tb_vendor[QCA_WLAN_VENDOR_ATTR_GET_STATION_INFO_REMOTE_TX_PACKETS]) {
-			snprintf(info->reply_buf, info->reply_buf_len,
-				 "%02x:%02x:%02x:%02x:%02x:%02x "
-				 "%d %d %04x "
-				 "%02x:%02x:%02x %d %d %d %d %d %d %d %d %d %s",
-				 info->mac_addr[0], info->mac_addr[1],
-				 info->mac_addr[2], info->mac_addr[3],
-				 info->mac_addr[4], info->mac_addr[5],
-				 g_sta_info.rx_retry_pkts, g_sta_info.rx_bcmc_pkts,
-				 g_sta_info.cap, info->mac_addr[0],
-				 info->mac_addr[1], info->mac_addr[2],
-				 g_sta_info.freq,
-				 g_sta_info.bandwidth,
-				 g_sta_info.rssi,
-				 g_sta_info.data_rate,
-				 g_sta_info.dot11_mode,
-				 -1,
-				 -1,
-				 g_sta_info.reason,
-				 g_sta_info.supported_mode,
-				 info->country);
-		} else if (g_sta_info.num_sta == 1 && !tb_vendor[QCA_WLAN_VENDOR_ATTR_GET_STATION_INFO_REMOTE_TX_PACKETS]) {
-			snprintf(info->reply_buf, info->reply_buf_len,
-				 "%02x:%02x:%02x:%02x:%02x:%02x "
-				 "%d %d %04x "
-				 "%02x:%02x:%02x %d %d %d %d %d %d %d %d %u %s",
-				 info->mac_addr[0], info->mac_addr[1],
-				 info->mac_addr[2], info->mac_addr[3],
-				 info->mac_addr[4], info->mac_addr[5],
-				 g_sta_info.rx_retry_pkts, g_sta_info.rx_bcmc_pkts,
-				 g_sta_info.cap, info->mac_addr[0],
-				 info->mac_addr[1], info->mac_addr[2],
-				 g_sta_info.freq,
-				 g_sta_info.bandwidth,
-				 g_sta_info.rssi,
-				 g_sta_info.data_rate,
-				 g_sta_info.supported_mode,
-				 -1,
-				 -1,
-				 g_sta_info.reason,
-				 g_sta_info.supported_band,
-				 info->country);
-		} else {
-			/* Summary of all STAs */
-			snprintf(info->reply_buf, info->reply_buf_len,
-				 "%d %d %04x "
-				 "%d %d %d %d %d %d %d %d %d %s",
-				 g_sta_info.rx_retry_pkts, g_sta_info.rx_bcmc_pkts,
-				 -1, /* CAP */
-				 -1, /* Channel */
-				 -1, /* Bandwidth */
-				 -1, /* Rssi */
-				 -1, /* Data_rate */
-				 -1, /* 11_mode */
-				 -1,
-				 -1,
-				 -1, /* Reason */
-				 -1, /* Support_mode */
-				 info->country);
-		}
+	wpa_printf(MSG_INFO,"num_received_vendor_sta_info %d",
+	      g_sta_info.num_received_vendor_sta_info);
 
-		wpa_printf(MSG_INFO,"%s", info->reply_buf);
+	return 0;
+}
+
+static int
+wpa_driver_send_get_sta_info_legacy_cmd(struct i802_bss *bss, u8 *mac,
+					int *status)
+{
+	struct wpa_driver_nl80211_data *drv = bss->drv;
+	struct nl_msg *nlmsg;
+	struct nlattr *attr;
+	struct resp_info info;
+
+	memset(&info, 0, sizeof(info));
+	os_memcpy(&info.mac_addr[0], mac, MAC_ADDR_LEN);
+	os_memcpy(&g_sta_info.mac_addr[0], mac, MAC_ADDR_LEN);
+
+	nlmsg = prepare_vendor_nlmsg(drv, bss->ifname,
+				     QCA_NL80211_VENDOR_SUBCMD_GET_STATION);
+	if (!nlmsg) {
+		wpa_printf(MSG_ERROR,"Failed to allocate nl message");
+		return -1;
 	}
+
+	attr = nla_nest_start(nlmsg, NL80211_ATTR_VENDOR_DATA);
+	if (!attr) {
+		nlmsg_free(nlmsg);
+		return -1;
+	}
+
+	if (nla_put(nlmsg, QCA_WLAN_VENDOR_ATTR_GET_STATION_REMOTE,
+		    MAC_ADDR_LEN, mac)) {
+		wpa_printf(MSG_ERROR,"Failed to put QCA_WLAN_VENDOR_ATTR_GET_STATION_REMOTE");
+		nlmsg_free(nlmsg);
+		return -1;
+	}
+
+	nla_nest_end(nlmsg, attr);
+
+	*status = send_nlmsg((struct nl_sock *)drv->global->nl, nlmsg,
+			     get_sta_info_legacy_handler, &info);
+	if (*status != 0) {
+		wpa_printf(MSG_ERROR,"Failed to send nl message with err %d", *status);
+		return -1;
+	}
+
+	return 0;
+}
+
+static int get_sta_info_handler(struct nl_msg *msg, void *arg)
+{
+	struct genlmsghdr *msg_hdr;
+	struct nlattr *tb[NL80211_ATTR_MAX_INTERNAL + 1];
+	struct nlattr *tb_vendor[GET_STA_INFO_MAX + 1];
+	struct nlattr *vendor_data;
+	int vendor_len;
+	struct resp_info *info = (struct resp_info *)arg;
+	uint8_t mac_addr[MAC_ADDR_LEN];
+
+	if (!info) {
+		wpa_printf(MSG_ERROR,"Invalid arg");
+		return -1;
+	}
+
+	msg_hdr = (struct genlmsghdr *)nlmsg_data(nlmsg_hdr(msg));
+	nla_parse(tb, NL80211_ATTR_MAX_INTERNAL, genlmsg_attrdata(msg_hdr, 0),
+		  genlmsg_attrlen(msg_hdr, 0), NULL);
+
+	if (!tb[NL80211_ATTR_VENDOR_DATA]) {
+		wpa_printf(MSG_ERROR,"NL80211_ATTR_VENDOR_DATA not found");
+		return -1;
+	}
+
+	vendor_data = nla_data(tb[NL80211_ATTR_VENDOR_DATA]);
+	vendor_len = nla_len(tb[NL80211_ATTR_VENDOR_DATA]);
+
+	if (nla_parse(tb_vendor, GET_STA_INFO_MAX,
+		      vendor_data, vendor_len, NULL)) {
+		wpa_printf(MSG_ERROR,"NL80211_ATTR_VENDOR_DATA parse error");
+		return -1;
+	}
+
+	if (tb_vendor[GET_STA_INFO_MAC]) {
+		nla_memcpy(mac_addr,
+			tb_vendor[GET_STA_INFO_MAC],MAC_ADDR_LEN);
+		if (os_memcmp(mac_addr, info->mac_addr, MAC_ADDR_LEN)) {
+			wpa_printf(MSG_ERROR,"MAC address mismatch");
+			return -1;
+		}
+	}
+
+	wpa_printf(MSG_INFO,"Recv STA info %02x:%02x:%02x:%02x:%02x:%02x",
+	      info->mac_addr[0], info->mac_addr[1], info->mac_addr[2],
+	      info->mac_addr[3], info->mac_addr[4], info->mac_addr[5]);
+
+	if (tb_vendor[GET_STA_INFO_RX_RETRY_COUNT]) {
+		g_sta_info.rx_retry_pkts +=
+			nla_get_u32(tb_vendor[GET_STA_INFO_RX_RETRY_COUNT]);
+		wpa_printf(MSG_INFO,"rx_retry_pkts %d", g_sta_info.rx_retry_pkts);
+	}
+
+	if (tb_vendor[GET_STA_INFO_RX_BC_MC_COUNT]) {
+		g_sta_info.rx_bcmc_pkts +=
+			nla_get_u32(tb_vendor[GET_STA_INFO_RX_BC_MC_COUNT]);
+		wpa_printf(MSG_INFO,"rx_bcmc_pkts %d", g_sta_info.rx_bcmc_pkts);
+	}
+
+	if (tb_vendor[GET_STA_INFO_TX_RETRY_SUCCEED]) {
+		g_sta_info.tx_pkts_retried +=
+			nla_get_u32(tb_vendor[GET_STA_INFO_TX_RETRY_SUCCEED]);
+		wpa_printf(MSG_INFO,"tx_pkts_retried %d", g_sta_info.tx_pkts_retried);
+	}
+
+	if (tb_vendor[GET_STA_INFO_TX_RETRY_EXHAUSTED]) {
+		g_sta_info.tx_pkts_retry_exhausted +=
+			nla_get_u32(tb_vendor[GET_STA_INFO_TX_RETRY_EXHAUSTED]);
+		wpa_printf(MSG_INFO,"tx_pkts_retry_exhausted %d", g_sta_info.tx_pkts_retry_exhausted);
+	}
+
+	if (tb_vendor[GET_STA_INFO_TARGET_TX_TOTAL]) {
+		g_sta_info.tx_pkts_fw_total +=
+			nla_get_u32(tb_vendor[GET_STA_INFO_TARGET_TX_TOTAL]);
+		wpa_printf(MSG_INFO,"tx_pkts_fw_total %d", g_sta_info.tx_pkts_fw_total);
+	}
+
+	if (tb_vendor[GET_STA_INFO_TARGET_TX_RETRY]) {
+		g_sta_info.tx_pkts_fw_retries +=
+			nla_get_u32(tb_vendor[GET_STA_INFO_TARGET_TX_RETRY]);
+		wpa_printf(MSG_INFO,"tx_pkts_fw_retries %d", g_sta_info.tx_pkts_fw_retries);
+	}
+
+	if (tb_vendor[GET_STA_INFO_TARGET_TX_RETRY_EXHAUSTED]) {
+		g_sta_info.tx_pkts_fw_retry_exhausted +=
+			nla_get_u32(tb_vendor[GET_STA_INFO_TARGET_TX_RETRY_EXHAUSTED]);
+		wpa_printf(MSG_INFO,"tx_pkts_fw_retry_exhausted %d", g_sta_info.tx_pkts_fw_retry_exhausted);
+	}
+
+
+	g_sta_info.num_received_vendor_sta_info++;
+
+	wpa_printf(MSG_INFO,"num_received_vendor_sta_info %d",
+	      g_sta_info.num_received_vendor_sta_info);
 
 	return 0;
 }
@@ -1144,8 +1430,7 @@ static int wpa_driver_ioctl(struct i802_bss *bss, char *cmd,
 }
 
 static int wpa_driver_send_get_sta_info_cmd(struct i802_bss *bss, u8 *mac,
-					    char *buf, size_t buf_len,
-					    int *status)
+					    int *status, bool *new_cmd)
 {
 	struct wpa_driver_nl80211_data *drv = bss->drv;
 	struct nl_msg *nlmsg;
@@ -1154,18 +1439,13 @@ static int wpa_driver_send_get_sta_info_cmd(struct i802_bss *bss, u8 *mac,
 
 	memset(&info, 0, sizeof(info));
 	os_memcpy(&info.mac_addr[0], mac, MAC_ADDR_LEN);
-	info.reply_buf = buf;
-	info.reply_buf_len = buf_len;
+	os_memcpy(&g_sta_info.mac_addr[0], mac, MAC_ADDR_LEN);
 
-	char *p;
-	if(wpa_driver_ioctl(bss, "GETCOUNTRYREV", buf, buf_len, &status, drv) == 0){
-		p = strstr(buf, " ");
-		if(p != NULL)
-			memcpy(info.country, (p+1), strlen(p+1)+1);//length of p including null
-	}
+	*new_cmd = true;
+
 
 	nlmsg = prepare_vendor_nlmsg(drv, bss->ifname,
-				     QCA_NL80211_VENDOR_SUBCMD_GET_STATION);
+				     QCA_NL80211_VENDOR_SUBCMD_GET_STA_INFO);
 	if (!nlmsg) {
 		wpa_printf(MSG_ERROR,"Failed to allocate nl message");
 		return -1;
@@ -1177,9 +1457,9 @@ static int wpa_driver_send_get_sta_info_cmd(struct i802_bss *bss, u8 *mac,
 		return -1;
 	}
 
-	if (nla_put(nlmsg, QCA_WLAN_VENDOR_ATTR_GET_STATION_REMOTE,
+	if (nla_put(nlmsg, GET_STA_INFO_MAC,
 		    MAC_ADDR_LEN, mac)) {
-		wpa_printf(MSG_ERROR,"Failed to put QCA_WLAN_VENDOR_ATTR_GET_STATION_REMOTE");
+		wpa_printf(MSG_ERROR,"Failed to put GET_STA_INFO_MAC");
 		nlmsg_free(nlmsg);
 		return -1;
 	}
@@ -1189,15 +1469,297 @@ static int wpa_driver_send_get_sta_info_cmd(struct i802_bss *bss, u8 *mac,
 	*status = send_nlmsg((struct nl_sock *)drv->global->nl, nlmsg,
 			     get_sta_info_handler, &info);
 	if (*status != 0) {
+		if (*status == -EOPNOTSUPP) {
+			wpa_printf(MSG_INFO,"Command is not supported, try legacy command");
+			*new_cmd = false;
+			return wpa_driver_send_get_sta_info_legacy_cmd(bss,
+								       mac,
+								       status);
+		} else {
+			wpa_printf(MSG_ERROR,"Failed to send nl message with err %d", *status);
+			return -1;
+		}
+	}
+
+	g_sta_info.num_request_vendor_sta_info++;
+	wpa_printf(MSG_INFO,"num_request_vendor_sta_info %d",
+	      g_sta_info.num_request_vendor_sta_info);
+
+	return 0;
+}
+
+static int get_station_handler(struct nl_msg *msg, void *arg)
+{
+	struct genlmsghdr *msg_hdr;
+	struct nlattr *tb[NL80211_ATTR_MAX + 1];
+	struct nlattr *tb_sinfo[NL80211_STA_INFO_MAX + 1];
+	struct nlattr *tb_rate[NL80211_RATE_INFO_MAX + 1];
+	struct nlattr *sinfo_data, *attr;
+	int sinfo_len, tmp, num_chain = 0;
+	struct resp_info *info = (struct resp_info *)arg;
+	uint8_t mac_addr[MAC_ADDR_LEN];
+
+	if (!info) {
+		wpa_printf(MSG_ERROR,"Invalid arg");
+		return -1;
+	}
+
+	msg_hdr = (struct genlmsghdr *)nlmsg_data(nlmsg_hdr(msg));
+	nla_parse(tb, NL80211_ATTR_MAX, genlmsg_attrdata(msg_hdr, 0),
+		  genlmsg_attrlen(msg_hdr, 0), NULL);
+
+	if (tb[NL80211_ATTR_MAC]) {
+		nla_memcpy(mac_addr, tb[NL80211_ATTR_MAC], MAC_ADDR_LEN);
+		if (os_memcmp(mac_addr, info->mac_addr, MAC_ADDR_LEN)) {
+			wpa_printf(MSG_ERROR,"MAC address mismatch");
+			return -1;
+		}
+	}
+
+	wpa_printf(MSG_INFO,"Recv STA info %02x:%02x:%02x:%02x:%02x:%02x",
+	      info->mac_addr[0], info->mac_addr[1], info->mac_addr[2],
+	      info->mac_addr[3], info->mac_addr[4], info->mac_addr[5]);
+
+	if (!tb[NL80211_ATTR_STA_INFO]) {
+		wpa_printf(MSG_ERROR,"NL80211_ATTR_STA_INFO not found");
+		return -1;
+	}
+
+	sinfo_data = nla_data(tb[NL80211_ATTR_STA_INFO]);
+	sinfo_len = nla_len(tb[NL80211_ATTR_STA_INFO]);
+
+	if (nla_parse(tb_sinfo, NL80211_STA_INFO_MAX, sinfo_data, sinfo_len,
+		      NULL)) {
+		wpa_printf(MSG_ERROR,"NL80211_ATTR_STA_INFO parse error");
+		return -1;
+	}
+
+	/* No need to read for summary */
+	if (g_sta_info.num_sta == 1) {
+		if (tb[NL80211_ATTR_IE])
+			parse_assoc_req_ies(nla_data(tb[NL80211_ATTR_IE]),
+					    nla_len(tb[NL80211_ATTR_IE]));
+
+		attr = tb_sinfo[NL80211_STA_INFO_TX_BITRATE];
+		if (attr) {
+			nla_parse(tb_rate, NL80211_RATE_INFO_MAX,
+				  nla_data(attr), nla_len(attr), NULL);
+
+			if (tb_rate[NL80211_RATE_INFO_BITRATE32]) {
+				g_sta_info.tx_rate =
+					nla_get_u32(tb_rate[NL80211_RATE_INFO_BITRATE32]);
+				wpa_printf(MSG_INFO,"tx_rate %d", g_sta_info.tx_rate);
+			}
+
+			if (tb_rate[NL80211_RATE_INFO_160_MHZ_WIDTH])
+				g_sta_info.bandwidth = QCA_VENDOR_WLAN_CHAN_WIDTH_160;
+			else if (tb_rate[NL80211_RATE_INFO_80P80_MHZ_WIDTH])
+				g_sta_info.bandwidth = QCA_VENDOR_WLAN_CHAN_WIDTH_80_80;
+			else if (tb_rate[NL80211_RATE_INFO_80_MHZ_WIDTH])
+				g_sta_info.bandwidth = QCA_VENDOR_WLAN_CHAN_WIDTH_80;
+			else if (tb_rate[NL80211_RATE_INFO_40_MHZ_WIDTH])
+				g_sta_info.bandwidth = QCA_VENDOR_WLAN_CHAN_WIDTH_40;
+			else
+				g_sta_info.bandwidth = QCA_VENDOR_WLAN_CHAN_WIDTH_20;
+			wpa_printf(MSG_INFO,"bandwidth %d", g_sta_info.bandwidth);
+		}
+
+		attr = tb_sinfo[NL80211_STA_INFO_RX_BITRATE];
+		if (attr) {
+			nla_parse(tb_rate, NL80211_RATE_INFO_MAX,
+				  nla_data(attr), nla_len(attr), NULL);
+			if (tb_rate[NL80211_RATE_INFO_BITRATE32]) {
+				g_sta_info.data_rate =
+					nla_get_u32(tb_rate[NL80211_RATE_INFO_BITRATE32]);
+				wpa_printf(MSG_INFO,"data_rate %d", g_sta_info.data_rate);
+			}
+		}
+
+		if (tb_sinfo[NL80211_STA_INFO_SIGNAL_AVG]) {
+			g_sta_info.rssi =
+				nla_get_u8(tb_sinfo[NL80211_STA_INFO_SIGNAL_AVG]);
+			g_sta_info.rssi -= NOISE_FLOOR_DBM;
+			wpa_printf(MSG_INFO,"rssi %d", g_sta_info.rssi);
+		}
+
+		if (tb_sinfo[NL80211_STA_INFO_SIGNAL]) {
+			g_sta_info.rx_lastpkt_rssi =
+				nla_get_u8(tb_sinfo[NL80211_STA_INFO_SIGNAL]);
+			g_sta_info.rx_lastpkt_rssi -= NOISE_FLOOR_DBM;
+			wpa_printf(MSG_INFO,"rx_lastpkt_rssi %d", g_sta_info.rx_lastpkt_rssi);
+		}
+
+		if (tb_sinfo[NL80211_STA_INFO_CHAIN_SIGNAL_AVG]) {
+			nla_for_each_nested(attr,
+					    tb_sinfo[NL80211_STA_INFO_CHAIN_SIGNAL_AVG],
+					    tmp) {
+				if (num_chain >= WMI_MAX_CHAINS) {
+					wpa_printf(MSG_ERROR,"WMI_MAX_CHAINS reached");
+					break;
+				}
+				g_sta_info.avg_rssi_per_chain[num_chain] = nla_get_u8(attr);
+				g_sta_info.avg_rssi_per_chain[num_chain] -= NOISE_FLOOR_DBM;
+				wpa_printf(MSG_INFO,"avg_rssi_per_chain[%d] %d", num_chain,
+				      g_sta_info.avg_rssi_per_chain[num_chain]);
+				num_chain++;
+			}
+		}
+	}
+
+	if (tb_sinfo[NL80211_STA_INFO_TX_PACKETS]) {
+		g_sta_info.tx_pkts_total +=
+			nla_get_u32(tb_sinfo[NL80211_STA_INFO_TX_PACKETS]);
+		g_sta_info.tx_pckts +=
+			nla_get_u32(tb_sinfo[NL80211_STA_INFO_TX_PACKETS]);
+		wpa_printf(MSG_INFO,"tx_pkts_total %d", g_sta_info.tx_pkts_total);
+		wpa_printf(MSG_INFO,"tx_pckts %d", g_sta_info.tx_pckts);
+	}
+
+	if (tb_sinfo[NL80211_STA_INFO_TX_FAILED]) {
+		g_sta_info.tx_failures +=
+			nla_get_u32(tb_sinfo[NL80211_STA_INFO_TX_FAILED]);
+		wpa_printf(MSG_INFO,"tx_failures %d", g_sta_info.tx_failures);
+	}
+
+	if (tb_sinfo[NL80211_STA_INFO_TX_RETRIES]) {
+		g_sta_info.tx_pkts_retries +=
+			nla_get_u32(tb_sinfo[NL80211_STA_INFO_TX_RETRIES]);
+		wpa_printf(MSG_INFO,"tx_pkts_retries %d", g_sta_info.tx_pkts_retries);
+	}
+
+
+	g_sta_info.num_received_nl80211_sta_info++;
+
+	wpa_printf(MSG_INFO,"num_received_nl80211_sta_info %d",
+	      g_sta_info.num_received_nl80211_sta_info);
+
+	return 0;
+}
+
+static int wpa_driver_send_get_station_cmd(struct i802_bss *bss, u8 *mac,
+					   int *status)
+{
+	struct wpa_driver_nl80211_data *drv = bss->drv;
+	struct nl_msg *nlmsg;
+	struct resp_info info;
+
+	memset(&info, 0, sizeof(info));
+	os_memcpy(&info.mac_addr[0], mac, MAC_ADDR_LEN);
+	os_memcpy(&g_sta_info.mac_addr[0], mac, MAC_ADDR_LEN);
+
+	nlmsg = prepare_nlmsg(drv, bss->ifname, NL80211_CMD_GET_STATION, 0, 0);
+	if (!nlmsg) {
+		wpa_printf(MSG_ERROR,"Failed to allocate nl message");
+		return -1;
+	}
+
+	if (nla_put(nlmsg, NL80211_ATTR_MAC, MAC_ADDR_LEN, mac)) {
+		wpa_printf(MSG_ERROR,"Failed to put NL80211_ATTR_MAC");
+		nlmsg_free(nlmsg);
+		return -1;
+	}
+
+	*status = send_nlmsg((struct nl_sock *)drv->global->nl, nlmsg,
+			     get_station_handler, &info);
+	if (*status != 0) {
 		wpa_printf(MSG_ERROR,"Failed to send nl message with err %d", *status);
 		return -1;
 	}
 
-	return strlen(info.reply_buf);
+	g_sta_info.num_request_nl80211_sta_info++;
+	wpa_printf(MSG_INFO,"num_request_nl80211_sta_info %d",
+	      g_sta_info.num_request_nl80211_sta_info);
+
+	return 0;
 }
 
-static int wpa_driver_get_all_sta_info(struct i802_bss *bss, char *buf,
-				       size_t buf_len, int *status)
+static int wpa_driver_get_sta_info(struct i802_bss *bss, u8 *mac,
+				   int *status)
+{
+	struct wpa_driver_nl80211_data *drv = bss->drv;
+	struct hostapd_data *hapd = bss->ctx;
+	struct sta_info *iter, *sta = NULL;
+	bool new_cmd;
+	int ret;
+	char buf[MAX_DRV_CMD_SIZE];
+	char *p;
+
+	memset(buf, 0, sizeof(buf));
+
+	ret = wpa_driver_send_get_sta_info_cmd(bss, mac, status, &new_cmd);
+	if (ret < 0)
+		return ret;
+
+	if (new_cmd) {
+		ret = wpa_driver_send_get_station_cmd(bss, mac, status);
+		if (ret < 0)
+			return ret;
+
+		/* No need to read for summary */
+		if (g_sta_info.num_sta == 1) {
+			if (!hapd) {
+				wpa_printf(MSG_ERROR,"hapd is NULL");
+				return -1;
+			}
+			iter = hapd->sta_list;
+			while (iter) {
+				if (os_memcmp(mac, iter->addr, MAC_ADDR_LEN) == 0) {
+					sta = iter;
+					break;
+				}
+				iter = iter->next;
+			}
+			if (!sta) {
+				wpa_printf(MSG_ERROR,"STA is not found");
+				return -1;
+			}
+
+			g_sta_info.cap = sta->capability;
+			wpa_printf(MSG_INFO,"cap %04x", g_sta_info.cap);
+			g_sta_info.freq = (u32)hapd->iface->freq;
+			wpa_printf(MSG_INFO,"freq %d", g_sta_info.freq);
+
+			if (g_sta_info.flags.he_supported) {
+				g_sta_info.dot11_mode = QCA_VENDOR_WLAN_802_11_MODE_AX;
+				g_sta_info.supported_mode = QCA_VENDOR_WLAN_PHY_MODE_HE;
+			} else if (g_sta_info.flags.vht_supported) {
+				g_sta_info.dot11_mode = QCA_VENDOR_WLAN_802_11_MODE_AC;
+				g_sta_info.supported_mode = QCA_VENDOR_WLAN_PHY_MODE_VHT;
+			} else if (g_sta_info.flags.ht_supported) {
+				g_sta_info.dot11_mode = QCA_VENDOR_WLAN_802_11_MODE_N;
+				g_sta_info.supported_mode = QCA_VENDOR_WLAN_PHY_MODE_HT;
+			} else {
+				if (g_sta_info.freq < 4900) {
+					if (hapd->iconf->hw_mode == HOSTAPD_MODE_IEEE80211B)
+						g_sta_info.dot11_mode =
+							QCA_VENDOR_WLAN_802_11_MODE_B;
+					else
+						g_sta_info.dot11_mode =
+							QCA_VENDOR_WLAN_802_11_MODE_G;
+				} else {
+					g_sta_info.dot11_mode = QCA_VENDOR_WLAN_802_11_MODE_A;
+				}
+				g_sta_info.supported_mode = QCA_VENDOR_WLAN_PHY_MODE_LEGACY;
+			}
+
+			wpa_printf(MSG_INFO,"dot11_mode %d", g_sta_info.dot11_mode);
+			wpa_printf(MSG_INFO,"supported_mode %d", g_sta_info.supported_mode);
+		}
+	}
+
+	if(wpa_driver_ioctl(bss, "GETCOUNTRYREV", buf, sizeof(buf), &status, drv) == 0){
+		p = strstr(buf, " ");
+		if(p != NULL)
+			memcpy(g_sta_info.country, (p+1), strlen(p+1)+1);//length of p including null
+	}else{
+	}
+
+	wpa_printf(MSG_INFO,"STA information completed");
+
+	return 0;
+}
+
+static int wpa_driver_get_all_sta_info(struct i802_bss *bss, int *status)
 {
 	struct hostapd_data *hapd = bss->ctx;
 	struct sta_info *sta;
@@ -1212,18 +1774,14 @@ static int wpa_driver_get_all_sta_info(struct i802_bss *bss, char *buf,
 
 	sta = hapd->sta_list;
 	while (sta) {
-		ret = wpa_driver_send_get_sta_info_cmd(bss, sta->addr, buf,
-						       buf_len, status);
-		if (ret < 0) {
-			wpa_printf(MSG_ERROR,"Failed to get STA info, num_sta %d, sent %d",
-			      g_sta_info.num_sta, g_sta_info.num_request_sta_info);
-			g_sta_info.num_sta = 0;
+		ret = wpa_driver_get_sta_info(bss, sta->addr, status);
+		if (ret < 0)
 			return ret;
-		}
-		g_sta_info.num_request_sta_info++;
 		sta = sta->next;
 		total_ret += ret;
 	}
+
+	wpa_printf(MSG_INFO,"All STAs information completed");
 
 	return total_ret;
 }
@@ -1233,6 +1791,7 @@ static int wpa_driver_handle_get_sta_info(struct i802_bss *bss, char *cmd,
 					  int *status)
 {
 	u8 mac[MAC_ADDR_LEN];
+	int ret;
 
 	os_memset(&g_sta_info, 0, sizeof(g_sta_info));
 
@@ -1240,11 +1799,29 @@ static int wpa_driver_handle_get_sta_info(struct i802_bss *bss, char *cmd,
 	if (strlen(cmd) >= MAC_ADDR_LEN * 2 + MAC_ADDR_LEN - 1
 	    && convert_string_to_bytes(mac, cmd, MAC_ADDR_LEN) > 0) {
 		g_sta_info.num_sta = 1;
-		return wpa_driver_send_get_sta_info_cmd(bss, mac, buf, buf_len,
-							status);
+		ret = wpa_driver_get_sta_info(bss, mac, status);
+		if (ret < 0)
+			return ret;
+	} else {
+		ret = wpa_driver_get_all_sta_info(bss, status);
+		if (ret < 0)
+			return ret;
 	}
 
-	return wpa_driver_get_all_sta_info(bss, buf, buf_len, status);
+	if (ret == 0) {
+		ret = fill_sta_info(&g_sta_info, buf, buf_len);
+		wpa_printf(MSG_INFO,"%s", buf);
+	} else {
+		wpa_printf(MSG_ERROR,"Failed to get STA info, num_sta %d vendor_sent %d vendor_recv %d nl80211_send %d nl80211 recv %d",
+		      g_sta_info.num_sta,
+		      g_sta_info.num_request_vendor_sta_info,
+		      g_sta_info.num_received_vendor_sta_info,
+		      g_sta_info.num_request_nl80211_sta_info,
+		      g_sta_info.num_received_nl80211_sta_info);
+		wpa_printf(MSG_ERROR,"GETSTAINFO failed");
+	}
+
+	return ret;
 }
 
 static int thermal_info_handler(struct nl_msg *msg, void *arg)
@@ -1303,6 +1880,329 @@ static int wpa_driver_cmd_get_thermal_info(struct i802_bss *bss, int *result, in
 	return ret;
 }
 
+static int get_scan_handler(struct nl_msg *msg, void *arg)
+{
+	struct genlmsghdr *msg_hdr;
+	struct nlattr *attr[NL80211_ATTR_MAX + 1];
+	struct resp_info *info = (struct resp_info *)arg;
+	struct nlattr *bss_attr[NL80211_BSS_MAX + 1];
+	char *bssid;
+	static struct nla_policy get_scan_policy[NL80211_BSS_MAX + 1] = {
+		[NL80211_BSS_BSSID] = {},
+		[NL80211_BSS_FREQUENCY] = { .type = NLA_U32 },
+		[NL80211_BSS_STATUS] = { .type = NLA_U32 },
+		[NL80211_BSS_CHAN_WIDTH] = { .type = NLA_U32 },
+	};
+
+	if (!info) {
+		wpa_printf(MSG_DEBUG, "resp_info is NULL");
+		return NL_SKIP;
+	}
+
+	msg_hdr = (struct genlmsghdr *)nlmsg_data(nlmsg_hdr(msg));
+	nla_parse(attr, NL80211_ATTR_MAX, genlmsg_attrdata(msg_hdr, 0),
+		  genlmsg_attrlen(msg_hdr, 0), NULL);
+
+	if (!attr[NL80211_ATTR_BSS]) {
+		wpa_printf(MSG_DEBUG, "no bss info");
+		return NL_SKIP;
+	}
+
+	if (nla_parse_nested(bss_attr, NL80211_BSS_MAX,
+			     attr[NL80211_ATTR_BSS],
+			     get_scan_policy)) {
+		wpa_printf(MSG_DEBUG, "parse bss attr fail");
+		return NL_SKIP;
+	}
+
+	if (!bss_attr[NL80211_BSS_BSSID])
+		return NL_SKIP;
+
+	if (!bss_attr[NL80211_BSS_STATUS])
+		return NL_SKIP;
+
+	if (nla_get_u32(bss_attr[NL80211_BSS_STATUS]) !=
+	    NL80211_BSS_STATUS_ASSOCIATED)
+		return NL_SKIP;
+
+	bssid = nla_data(bss_attr[NL80211_BSS_BSSID]);
+	os_memcpy(g_csi_param.connected_bssid, bssid, MAC_ADDR_LEN);
+
+	wpa_printf(MSG_DEBUG, "get connected bss");
+	if (bss_attr[NL80211_BSS_FREQUENCY])
+		wpa_printf(MSG_DEBUG, "freq %d", nla_get_u32(bss_attr[NL80211_BSS_FREQUENCY]));
+
+	if (bss_attr[NL80211_BSS_CHAN_WIDTH])
+		wpa_printf(MSG_DEBUG, "BW %d", nla_get_u32(bss_attr[NL80211_BSS_CHAN_WIDTH]));
+
+	return 0;
+}
+
+static int wpa_driver_send_get_scan_cmd(struct i802_bss *bss, int *status)
+{
+	struct wpa_driver_nl80211_data *drv = bss->drv;
+	struct nl_msg *nlmsg;
+	struct resp_info info;
+
+	os_memset(g_csi_param.connected_bssid, 0xff, MAC_ADDR_LEN);
+	nlmsg = prepare_nlmsg(drv, bss->ifname, NL80211_CMD_GET_SCAN, 0, NLM_F_DUMP);
+	if (!nlmsg) {
+		wpa_printf(MSG_ERROR, "Failed to allocate nl message");
+		return WPA_DRIVER_OEM_STATUS_FAILURE;
+	}
+
+	*status = send_nlmsg((struct nl_sock *)drv->global->nl, nlmsg,
+			     get_scan_handler, &info);
+	if (*status != 0) {
+		wpa_printf(MSG_ERROR, "Failed to send nl message with err %d", *status);
+		return WPA_DRIVER_OEM_STATUS_FAILURE;
+	}
+
+	return WPA_DRIVER_OEM_STATUS_SUCCESS;
+}
+
+static int wpa_driver_start_csi_capture(struct i802_bss *bss, int *status,
+					int transport_mode)
+{
+	struct wpa_driver_nl80211_data *drv = bss->drv;
+	struct nl_msg *nlmsg;
+	struct nlattr *attr, *attr_table, *attr_entry;
+	char ta_mask[MAC_ADDR_LEN] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
+
+	nlmsg = prepare_vendor_nlmsg(drv, bss->ifname,
+				     QCA_NL80211_VENDOR_SUBCMD_PEER_CFR_CAPTURE_CFG);
+	if (!nlmsg) {
+		wpa_printf(MSG_ERROR, "Failed to allocate nl message");
+		return WPA_DRIVER_OEM_STATUS_FAILURE;
+	}
+
+	attr = nla_nest_start(nlmsg, NL80211_ATTR_VENDOR_DATA);
+	if (!attr) {
+		nlmsg_free(nlmsg);
+		return WPA_DRIVER_OEM_STATUS_FAILURE;
+	}
+
+	if (nla_put_u8(nlmsg, QCA_WLAN_VENDOR_ATTR_PEER_CFR_VERSION,
+		       ENHANCED_CFR_VER)) {
+		wpa_printf(MSG_ERROR, "Failed to csi version");
+		nlmsg_free(nlmsg);
+		return WPA_DRIVER_OEM_STATUS_FAILURE;
+	}
+
+	if (nla_put_u8(nlmsg, QCA_WLAN_VENDOR_ATTR_PEER_CFR_DATA_TRANSPORT_MODE,
+		       transport_mode)) {
+		wpa_printf(MSG_ERROR, "Failed to set transport mode");
+		nlmsg_free(nlmsg);
+		return WPA_DRIVER_OEM_STATUS_FAILURE;
+	}
+
+	if (nla_put_flag(nlmsg, QCA_WLAN_VENDOR_ATTR_PEER_CFR_ENABLE)) {
+		wpa_printf(MSG_ERROR, "Failed to csi enable flag");
+		nlmsg_free(nlmsg);
+		return WPA_DRIVER_OEM_STATUS_FAILURE;
+	}
+
+	if (nla_put_u32(nlmsg, QCA_WLAN_VENDOR_ATTR_PEER_CFR_ENABLE_GROUP_BITMAP,
+			CSI_GROUP_BITMAP)) {
+		wpa_printf(MSG_ERROR, "Failed to csi group bitmap");
+		nlmsg_free(nlmsg);
+		return WPA_DRIVER_OEM_STATUS_FAILURE;
+	}
+
+	if (nla_put_u32(nlmsg, QCA_WLAN_VENDOR_ATTR_PEER_CFR_CAPTURE_TYPE,
+			QCA_WLAN_VENDOR_CFR_TA_RA)) {
+		nlmsg_free(nlmsg);
+		return WPA_DRIVER_OEM_STATUS_FAILURE;
+	}
+
+	attr_table = nla_nest_start(nlmsg, QCA_WLAN_VENDOR_ATTR_PEER_CFR_GROUP_TABLE);
+	if (!attr_table) {
+		nlmsg_free(nlmsg);
+		return WPA_DRIVER_OEM_STATUS_FAILURE;
+	}
+
+	attr_entry = nla_nest_start(nlmsg, QCA_WLAN_VENDOR_ATTR_PEER_CFR_GROUP_ENTRY);
+	if (!attr_entry) {
+		nlmsg_free(nlmsg);
+		return WPA_DRIVER_OEM_STATUS_FAILURE;
+	}
+
+	if (nla_put_u32(nlmsg, QCA_WLAN_VENDOR_ATTR_PEER_CFR_GROUP_NUMBER,
+			CSI_DEFAULT_GROUP_ID)) {
+		nlmsg_free(nlmsg);
+		return WPA_DRIVER_OEM_STATUS_FAILURE;
+	}
+
+	if (nla_put_u32(nlmsg, QCA_WLAN_VENDOR_ATTR_PEER_CFR_GROUP_MGMT_FILTER,
+			CSI_MGMT_BEACON)) {
+		nlmsg_free(nlmsg);
+		return WPA_DRIVER_OEM_STATUS_FAILURE;
+	}
+
+	if (nla_put(nlmsg, QCA_WLAN_VENDOR_ATTR_PEER_CFR_GROUP_TA,
+		    MAC_ADDR_LEN, g_csi_param.connected_bssid)) {
+		nlmsg_free(nlmsg);
+		return WPA_DRIVER_OEM_STATUS_FAILURE;
+	}
+
+	if (nla_put(nlmsg, QCA_WLAN_VENDOR_ATTR_PEER_CFR_GROUP_TA_MASK,
+		    MAC_ADDR_LEN, ta_mask)) {
+		nlmsg_free(nlmsg);
+		return WPA_DRIVER_OEM_STATUS_FAILURE;
+	}
+	nla_nest_end(nlmsg, attr_entry);
+	nla_nest_end(nlmsg, attr_table);
+	nla_nest_end(nlmsg, attr);
+
+	*status = send_nlmsg((struct nl_sock *)drv->global->nl, nlmsg, NULL, NULL);
+	if (*status != 0) {
+		wpa_printf(MSG_ERROR, "Failed to send nl message with err %d", *status);
+		return WPA_DRIVER_OEM_STATUS_FAILURE;
+	}
+
+	g_csi_param.current_state = CSI_STATE_START;
+
+	return WPA_DRIVER_OEM_STATUS_SUCCESS;
+}
+
+static int wpa_driver_stop_csi_capture(struct i802_bss *bss, int *status)
+{
+	struct wpa_driver_nl80211_data *drv = bss->drv;
+	struct nl_msg *nlmsg;
+	struct nlattr *attr;
+
+	nlmsg = prepare_vendor_nlmsg(drv, bss->ifname,
+				     QCA_NL80211_VENDOR_SUBCMD_PEER_CFR_CAPTURE_CFG);
+	if (!nlmsg) {
+		wpa_printf(MSG_ERROR, "Failed to allocate nl message");
+		return WPA_DRIVER_OEM_STATUS_FAILURE;
+	}
+
+	attr = nla_nest_start(nlmsg, NL80211_ATTR_VENDOR_DATA);
+	if (!attr) {
+		nlmsg_free(nlmsg);
+		return WPA_DRIVER_OEM_STATUS_FAILURE;
+	}
+
+	if (nla_put_u8(nlmsg, QCA_WLAN_VENDOR_ATTR_PEER_CFR_VERSION,
+			ENHANCED_CFR_VER)) {
+		wpa_printf(MSG_ERROR, "Failed to csi version");
+		nlmsg_free(nlmsg);
+		return WPA_DRIVER_OEM_STATUS_FAILURE;
+	}
+
+	wpa_printf(MSG_DEBUG, "send stop csi cmd");
+	nla_nest_end(nlmsg, attr);
+	*status = send_nlmsg((struct nl_sock *)drv->global->nl, nlmsg, NULL, NULL);
+	if (*status != 0) {
+		wpa_printf(MSG_ERROR, "Failed to send nl message with err %d", *status);
+		return WPA_DRIVER_OEM_STATUS_FAILURE;
+	}
+
+	g_csi_param.current_state = CSI_STATE_STOP;
+
+	return WPA_DRIVER_OEM_STATUS_SUCCESS;
+}
+
+static void stop_csi_callback(int nsec)
+{
+	int status = 0;
+
+	wpa_printf(MSG_DEBUG, "enter %s, nsec %d", __func__, nsec);
+
+	wpa_driver_stop_csi_capture(g_csi_param.bss, &status);
+	if (status)
+		wpa_printf(MSG_ERROR, "Stop CSI failed");
+}
+
+static int wpa_driver_handle_csi_cmd(struct i802_bss *bss, char *cmd,
+				     char *buf, size_t buf_len,
+				     int *status)
+{
+	int csi_duration = -1;
+	int transport_mode = -1;
+	char *next_arg;
+
+	cmd = skip_white_space(cmd);
+	wpa_printf(MSG_DEBUG, "cmd:%s", cmd);
+	if (os_strncasecmp(cmd, "start", 5) == 0) {
+		next_arg = get_next_arg(cmd);
+		csi_duration = atoi(next_arg);
+
+		if (csi_duration < 0) {
+			wpa_printf(MSG_ERROR, "Invalid duration");
+			snprintf(buf, buf_len, "FAIL, Invalid duration");
+			*status = CSI_STATUS_REJECTED;
+			return WPA_DRIVER_OEM_STATUS_FAILURE;
+		}
+
+		wpa_driver_send_get_scan_cmd(bss, status);
+		if (g_csi_param.connected_bssid[0] == 0xff) {
+			wpa_printf(MSG_DEBUG, "Not connected");
+			snprintf(buf, buf_len, "FAIL, Not connected");
+			*status = CSI_STATUS_REJECTED;
+			return WPA_DRIVER_OEM_STATUS_FAILURE;
+		}
+
+		if (g_csi_param.current_state == CSI_STATE_START) {
+			wpa_driver_stop_csi_capture(bss, status);
+			alarm(0);
+		}
+
+		g_csi_param.bss = bss;
+		cmd += 6;
+		next_arg = get_next_arg(cmd);
+		if (*next_arg != '\0' && *next_arg == ' ')
+			transport_mode = atoi(next_arg);
+
+		if (transport_mode == 1 || transport_mode == -1)
+			transport_mode = 1;
+		g_csi_param.transport_mode = transport_mode;
+
+		wpa_driver_start_csi_capture(bss, status, transport_mode);
+		if (*status == 0 && csi_duration > 0) {
+			signal(SIGALRM, stop_csi_callback);
+			alarm(csi_duration);
+			wpa_printf(MSG_DEBUG, "set alarm %ds done", csi_duration);
+		}
+	} else if (os_strncasecmp(cmd, "stop", 4) == 0) {
+		if (g_csi_param.current_state != CSI_STATE_START)
+			return WPA_DRIVER_OEM_STATUS_SUCCESS;
+
+		wpa_driver_stop_csi_capture(bss, status);
+		wpa_printf(MSG_DEBUG, "stop csi cmd");
+	} else {
+		wpa_printf(MSG_ERROR, "invalid command");
+		*status = CSI_STATUS_REJECTED;
+		snprintf(buf, buf_len, "FAIL, Invalid command");
+		return WPA_DRIVER_OEM_STATUS_FAILURE;
+	}
+
+	return WPA_DRIVER_OEM_STATUS_SUCCESS;
+}
+
+static int wpa_driver_restart_csi(struct i802_bss *bss, int *status)
+{
+	wpa_driver_send_get_scan_cmd(bss, status);
+	if (g_csi_param.connected_bssid[0] == 0xff) {
+		wpa_printf(MSG_DEBUG, "%s: Not connected", __func__);
+		*status = CSI_STATUS_REJECTED;
+		return WPA_DRIVER_OEM_STATUS_FAILURE;
+	}
+	/* Stop CSI capture on previous bss */
+	if(wpa_driver_stop_csi_capture(g_csi_param.bss, status)) {
+		wpa_printf(MSG_DEBUG, "%s: csi stop failed", __func__);
+	}
+	g_csi_param.bss = bss;
+	if(wpa_driver_start_csi_capture(g_csi_param.bss, status,
+				g_csi_param.transport_mode)) {
+		*status = CSI_STATUS_REJECTED;
+		return WPA_DRIVER_OEM_STATUS_FAILURE;
+	}
+	*status = CSI_STATUS_SUCCESS;
+	return WPA_DRIVER_OEM_STATUS_SUCCESS;
+}
+
 int wpa_driver_nl80211_driver_cmd(void *priv, char *cmd, char *buf,
 				  size_t buf_len )
 {
@@ -1357,8 +2257,13 @@ int wpa_driver_nl80211_driver_cmd(void *priv, char *cmd, char *buf,
 		if (!ret)
 			ret = os_snprintf(buf, buf_len,
 					  "Macaddr = " MACSTR "\n", MAC2STR(macaddr));
+	} else if (os_strncasecmp(cmd, "SET_CONGESTION_REPORT ", 22) == 0) {
+		return wpa_driver_cmd_set_congestion_report(priv, cmd + 22);
 	} else if (os_strncasecmp(cmd, "SET_TXPOWER ", 12) == 0) {
 		return wpa_driver_cmd_set_tx_power(priv, cmd + 12);
+	} else if (os_strncasecmp(cmd, "CSI", 3) == 0) {
+		cmd += 3;
+		return wpa_driver_handle_csi_cmd(bss, cmd, buf, buf_len, &status);
 	} else if(os_strncasecmp(cmd, "GETSTATSBSSINFO", 15) == 0) {
 
 		struct resp_info info;
