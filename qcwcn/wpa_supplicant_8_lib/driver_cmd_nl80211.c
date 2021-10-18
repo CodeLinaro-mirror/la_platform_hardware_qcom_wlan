@@ -95,7 +95,11 @@ static int wpa_driver_cmd_set_ani_level(struct i802_bss *bss, int mode, int ofdm
 		}
 	}
 	nla_nest_end(msg, params);
+#ifndef CONFIG_ANDROID_S
 	ret = send_and_recv_msgs(drv, msg, NULL, NULL);
+#else
+	ret = send_and_recv_msgs(drv, msg, NULL, NULL, NULL, NULL);
+#endif
 	if (!ret)
 		return 0;
 	wpa_printf(MSG_ERROR, "%s: Failed set_ani_level, ofdmlvl=%d, ret=%d",
@@ -152,7 +156,11 @@ static int wpa_driver_cmd_set_congestion_report(struct i802_bss *bss, char *cmd)
 		}
 	}
 	nla_nest_end(msg, params);
+#ifndef CONFIG_ANDROID_S
 	ret = send_and_recv_msgs(drv, msg, NULL, NULL);
+#else
+	ret = send_and_recv_msgs(drv, msg, NULL, NULL, NULL, NULL);
+#endif
 	wpa_printf(MSG_INFO, "%s: set congestion report: enable=%d, threshold=%d,"
 			"interval=%d", __FUNCTION__, enable, threshold, interval);
 	if (!ret)
@@ -190,7 +198,11 @@ static int wpa_driver_cmd_set_tx_power(struct i802_bss *bss, char *cmd)
 		return -ENOBUFS;
 	}
 
+#ifndef CONFIG_ANDROID_S
 	ret = send_and_recv_msgs(drv, msg, NULL, NULL);
+#else
+	ret = send_and_recv_msgs(drv, msg, NULL, NULL, NULL, NULL);
+#endif
 	if (!ret)
 		return 0;
 
@@ -1874,6 +1886,11 @@ static int wpa_driver_get_all_sta_info(struct i802_bss *bss, int *status)
 	struct sta_info *sta;
 	int ret, total_ret = 0;
 
+	if(bss->drv && bss->drv->nlmode != NL80211_IFTYPE_AP) {
+		wpa_printf(MSG_ERROR,"Not a hapd interface");
+		return -1;
+	}
+
 	if (!hapd) {
 		wpa_printf(MSG_ERROR,"hapd is NULL");
 		return -1;
@@ -1981,7 +1998,11 @@ static int wpa_driver_cmd_get_thermal_info(struct i802_bss *bss, int *result, in
 	}
 
 	nla_nest_end(msg, params);
+#ifndef CONFIG_ANDROID_S
 	ret = send_and_recv_msgs(drv, msg, thermal_info_handler, result);
+#else
+	ret = send_and_recv_msgs(drv, msg, thermal_info_handler, result, NULL, NULL);
+#endif
 	if (!ret)
 		return 0;
 	wpa_printf(MSG_ERROR, "%s: Failed get thermal info, ret=%d(%s)",
