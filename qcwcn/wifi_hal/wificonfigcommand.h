@@ -50,6 +50,8 @@ class WiFiConfigCommand: public WifiVendorCommand
 private:
     int                 mRequestId;
     bool                mWaitforRsp;
+    int                 mWiphyIndex;
+    char                mCountryCode[4];
 
 public:
     WiFiConfigCommand(wifi_handle handle, int id, u32 vendor_id, u32 subcmd);
@@ -67,6 +69,10 @@ public:
     virtual wifi_error create_generic(u8 cmdId);
     virtual void waitForRsp(bool wait);
     virtual wifi_error requestEvent();
+    virtual wifi_error requestResponse();
+    virtual int handleResponse(WifiEvent &reply);
+    virtual int getWiphyIndex();
+    virtual const char * getCountryCode();
 };
 
 #ifdef __cplusplus
