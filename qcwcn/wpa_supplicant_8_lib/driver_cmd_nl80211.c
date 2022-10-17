@@ -151,6 +151,12 @@ out:
 	} else { /* Use private command */
 		memset(&ifr, 0, sizeof(ifr));
 		memset(&priv_cmd, 0, sizeof(priv_cmd));
+
+		if (strlen(cmd) + 1 > buf_len) {
+			wpa_printf(MSG_ERROR, "%s: cmd length is invalid\n",
+				   __func__);
+			return -EINVAL;
+		}
 		os_memcpy(buf, cmd, strlen(cmd) + 1);
 		os_strlcpy(ifr.ifr_name, bss->ifname, IFNAMSIZ);
 
