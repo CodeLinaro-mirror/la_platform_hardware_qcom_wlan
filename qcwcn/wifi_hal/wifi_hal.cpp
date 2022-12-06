@@ -143,14 +143,17 @@ static wifi_error wifi_configure_nd_offload(wifi_interface_handle iface,
 wifi_error wifi_get_wake_reason_stats(wifi_interface_handle iface,
                              WLAN_DRIVER_WAKE_REASON_CNT *wifi_wake_reason_cnt);
 static int wifi_is_nan_ext_cmd_supported(wifi_interface_handle handle);
-wifi_error wifi_get_supported_iface_combination(wifi_interface_handle iface_handle);
 
 wifi_error
     wifi_init_tcp_param_change_event_handler(wifi_interface_handle iface);
 
+#ifndef TARGET_SUPPORTS_WEARABLES
+wifi_error wifi_get_supported_iface_combination(wifi_interface_handle iface_handle);
+
 wifi_error wifi_get_supported_iface_concurrency_matrix(
         wifi_handle handle,
         wifi_iface_concurrency_matrix *iface_concurrency_matrix);
+#endif /* TARGET_SUPPORTS_WEARABLES */
 
 /* Initialize/Cleanup */
 
@@ -1096,8 +1099,10 @@ wifi_error init_wifi_vendor_hal_func_table(wifi_hal_fn *fn) {
     fn->wifi_get_usable_channels = wifi_get_usable_channels;
     fn->wifi_get_supported_radio_combinations_matrix =
                                 wifi_get_supported_radio_combinations_matrix;
+#ifndef TARGET_SUPPORTS_WEARABLES
     fn->wifi_get_supported_iface_concurrency_matrix =
                                 wifi_get_supported_iface_concurrency_matrix;
+#endif /* TARGET_SUPPORTS_WEARABLES */
 
     return WIFI_SUCCESS;
 }
@@ -1429,11 +1434,13 @@ wifi_error wifi_initialize(wifi_handle *handle)
     ALOGV("support_nan_ext_cmd is %d",
           info->support_nan_ext_cmd);
 
+#ifndef TARGET_SUPPORTS_WEARABLES
     ret = wifi_get_supported_iface_combination(iface_handle);
     if (ret != WIFI_SUCCESS) {
         ALOGE("Failed to get driver supported interface combinations");
         goto unload;
     }
+#endif /* TARGET_SUPPORTS_WEARABLES */
 
     ret = wifi_get_sar_version(iface_handle);
     if (ret != WIFI_SUCCESS) {
@@ -3397,6 +3404,7 @@ static int wifi_is_nan_ext_cmd_supported(wifi_interface_handle iface_handle)
     }
 }
 
+#ifndef TARGET_SUPPORTS_WEARABLES
 char *get_iface_mask_str(u32 mask, char *buf, size_t buflen) {
     char * pos, *end;
     int res;
@@ -3434,7 +3442,7 @@ char *get_iface_mask_str(u32 mask, char *buf, size_t buflen) {
         goto error;
 
     pos += res;
-    res = snprintf(pos, end - pos, "]\0");
+    res = snprintf(pos, end - pos, "]");
     if (res < 0 || (res >= end - pos))
         goto error;
 
@@ -3442,7 +3450,7 @@ char *get_iface_mask_str(u32 mask, char *buf, size_t buflen) {
 
 error:
     ALOGE("snprintf() error res=%d, write length=%d", res, end - pos);
-    return "";
+    return NULL;
 }
 
 static void dump_wifi_iface_combination(wifi_iface_concurrency_matrix *matrix) {
@@ -3461,7 +3469,7 @@ static void dump_wifi_iface_combination(wifi_iface_concurrency_matrix *matrix) {
         ALOGV("comb%d : max_ifaces: %u iface_limit: %u", i+1, comb->max_ifaces, comb->num_iface_limits);
         for (j = 0; j < comb->num_iface_limits; j++) {
             limit = &comb->iface_limits[j];
-            ALOGV("    max=%u, iface:%s", limit->max_limit, get_iface_mask_str(limit->iface_mask, buf, 30));
+            ALOGV("    max=%u, iface:%s", limit->max_limit, get_iface_mask_str(limit->iface_mask, buf, 30) ? buf : "");
         }
     }
 }
@@ -3590,7 +3598,7 @@ public:
                 struct nlattr *tb_comb[NUM_NL80211_IFACE_COMB];
                 struct nlattr *tb_limit[NUM_NL80211_IFACE_LIMIT];
                 struct nlattr *nl_limit, *nl_mode;
-                int err, rem_limit, rem_mode, size_needed, j = 0;
+                int err, rem_limit, rem_mode, j = 0;
                 static struct nla_policy
                 iface_combination_policy[NUM_NL80211_IFACE_COMB] = {
                     [NL80211_IFACE_COMB_LIMITS] = { .type = NLA_NESTED },
@@ -3660,7 +3668,7 @@ public:
                             iface_limits[j].max_limit--;
                             break;
                         default:
-                            ALOGI("Ignore unsupported iface type: %lu", ift);
+                            ALOGI("Ignore unsupported iface type: %d", ift);
                             break;
                         }
                     }
@@ -3718,6 +3726,7 @@ wifi_error wifi_get_supported_iface_combination(wifi_interface_handle iface_hand
 
     return ret;
 }
+#endif /* TARGET_SUPPORTS_WEARABLES */
 
 wifi_error wifi_get_radar_history(wifi_interface_handle handle,
        radar_history_result *resultBuf, int resultBufSize, int *numResults)
@@ -3890,15 +3899,14 @@ cleanup:
     return ret;
 }
 
+#ifndef TARGET_SUPPORTS_WEARABLES
 wifi_error wifi_get_supported_iface_concurrency_matrix(
         wifi_handle handle, wifi_iface_concurrency_matrix *iface_comb_matrix)
 {
     wifi_error ret = WIFI_ERROR_UNKNOWN;
     hal_info *info = (hal_info *) handle;
-    wifi_interface_handle iface_handle;
     wifi_iface_combination *comb;
     wifi_iface_limit *limit;
-    int index;
 
     if (info == NULL) {
         ALOGE("Wifi not initialized yet.");
@@ -3926,3 +3934,4 @@ wifi_error wifi_get_supported_iface_concurrency_matrix(
     }
     return WIFI_SUCCESS;
 }
+#endif /* TARGET_SUPPORTS_WEARABLES */

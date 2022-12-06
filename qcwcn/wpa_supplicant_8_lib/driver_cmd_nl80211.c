@@ -53,6 +53,7 @@
 #include <netlink/genl/genl.h>
 #include <netlink/genl/ctrl.h>
 #include <linux/pkt_sched.h>
+#include <limits.h>
 
 #include "common.h"
 #include "linux_ioctl.h"
@@ -209,6 +210,7 @@ struct twt_nudge_parameters {
 	u8 dialog_id;
 	u32 wake_time;
 	u32 next_twt_size;
+	s32 sp_start_offset;
 };
 
 struct twt_set_parameters {
@@ -1761,6 +1763,12 @@ static int wpa_driver_ioctl(struct i802_bss *bss, char *cmd,
 	android_wifi_priv_cmd priv_cmd;
 	memset(&ifr, 0, sizeof(ifr));
 	memset(&priv_cmd, 0, sizeof(priv_cmd));
+
+	if (strlen(cmd) + 1 > buf_len) {
+		wpa_printf(MSG_ERROR, "%s: cmd length is invalid\n",
+			   __func__);
+		return -EINVAL;
+	}
 	os_memcpy(buf, cmd, strlen(cmd) + 1);
 	os_strlcpy(ifr.ifr_name, bss->ifname, IFNAMSIZ);
 	priv_cmd.buf = buf;
@@ -2686,6 +2694,27 @@ static u32 get_u32_from_string(char *cmd_string, int *ret)
 	return val;
 }
 
+static s32 get_s32_from_string(char *cmd_string, int *ret)
+{
+	s64 val64 = 0;
+	s32 val = 0;
+
+	*ret = 0;
+	errno = 0;
+	val64 = strtol(cmd_string, NULL, 10);
+	if (errno == ERANGE || (errno != 0 && val64 == 0)) {
+		wpa_printf(MSG_ERROR, "strtol failed (%s)", strerror(errno));
+		*ret = -EINVAL;
+        }
+
+	if ((val64 > INT_MAX || val64 < INT_MIN)) {
+		wpa_printf(MSG_ERROR, "value out of int range");
+		*ret = -EINVAL;
+	}
+	val = val64;
+	return val;
+}
+
 static u8 get_u8_from_string(char *cmd_string, int *ret)
 {
 	u8 val = 0;
@@ -2754,7 +2783,7 @@ void print_setup_cmd_values(struct twt_setup_parameters *twt_setup_params)
 		   twt_setup_params->min_wake_duration);
 	wpa_printf(MSG_DEBUG, "TWT: max wake duration: %d ",
 		   twt_setup_params->max_wake_duration);
-	wpa_printf(MSG_DEBUG, "TWT: wake tsf: 0x%lx ",
+	wpa_printf(MSG_DEBUG, "TWT: wake tsf: 0x%llx ",
 		   twt_setup_params->wake_tsf);
 	wpa_printf(MSG_DEBUG, "TWT: announce timeout(in us): %u",
 		   twt_setup_params->announce_timeout_us);
@@ -3398,6 +3427,17 @@ int process_twt_nudge_cmd_string(char *cmd,
 	nudge_params->next_twt_size = get_u32_from_string(cmd, &ret);
 	if (ret < 0)
 		return ret;
+	cmd = move_to_next_str(cmd);
+
+	if (os_strncasecmp(cmd, "sp_start_offset", strlen("sp_start_offset")) == 0) {
+		cmd += (strlen("sp_start_offset") + 1);
+		nudge_params->sp_start_offset = get_s32_from_string(cmd, &ret);
+		if (ret < 0)
+			return ret;
+
+		wpa_printf(MSG_DEBUG, "TWT: sp_start_offset %d",
+			   nudge_params->sp_start_offset);
+	}
 
 	return 0;
 }
@@ -3443,11 +3483,18 @@ int prepare_twt_nudge_nlmsg(struct nl_msg *nlmsg,
 		wpa_printf(MSG_DEBUG, "TWT: Failed to put next_twt_size");
 		return -EINVAL;
 	}
+
+	if (nla_put_s32(nlmsg, QCA_WLAN_VENDOR_ATTR_TWT_NUDGE_SP_START_OFFSET,
+			nudge_params->sp_start_offset)) {
+		wpa_printf(MSG_DEBUG, "TWT: Failed to put sp start offset");
+		return -EINVAL;
+	}
 	nla_nest_end(nlmsg, twt_attr);
 
-	wpa_printf(MSG_DEBUG,"TWT: nudge dialog_id: 0x%x wake_time(us): 0x%x next_twt_size: %u",
+	wpa_printf(MSG_DEBUG,"TWT: nudge dialog_id: 0x%x wake_time(us): 0x%x "
+		   "next_twt_size: %u sp_start_offset: %d",
 		   nudge_params->dialog_id, nudge_params->wake_time,
-		   nudge_params->next_twt_size);
+		   nudge_params->next_twt_size, nudge_params->sp_start_offset);
 
 	return 0;
 }
@@ -5855,6 +5902,12 @@ int wpa_driver_nl80211_driver_cmd(void *priv, char *cmd, char *buf,
 	} else { /* Use private command */
 		memset(&ifr, 0, sizeof(ifr));
 		memset(&priv_cmd, 0, sizeof(priv_cmd));
+
+		if (strlen(cmd) + 1 > buf_len) {
+			wpa_printf(MSG_ERROR, "%s: cmd length is invalid\n",
+				   __func__);
+			return -EINVAL;
+		}
 		os_memcpy(buf, cmd, strlen(cmd) + 1);
 		os_strlcpy(ifr.ifr_name, bss->ifname, IFNAMSIZ);
 
