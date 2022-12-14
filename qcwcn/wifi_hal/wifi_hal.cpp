@@ -32,6 +32,7 @@
 #include <netlink/socket.h>
 #include <netlink-private/object-api.h>
 #include <netlink-private/types.h>
+#include <cutils/properties.h>
 
 #include "nl80211_copy.h"
 
@@ -75,6 +76,8 @@
  */
 #define POLL_DRIVER_DURATION_US (100000)
 #define POLL_DRIVER_MAX_TIME_MS (10000)
+
+static const char DUAL_WLAN_PROP_NAME[] = "ro.vendor.wlan.dual_wlan_enabled";
 
 static int attach_monitor_sock(wifi_handle handle, wifihal_ctrl_req_t *ctrl_msg);
 
@@ -956,6 +959,41 @@ unload:
     return ret;
 }
 
+#if defined(WIFI_DRIVER_STATE_CTRL_PARAM) && defined(WIFI_DRIVER_STATE_CTRL_PARAM_SECONDARY)
+static int wifi_update_secondary_driver_state(const char *state) {
+    struct timespec ts;
+    int len, fd, ret = 0, count = 5;
+    ts.tv_sec = 0;
+    ts.tv_nsec = 200 * 1000000L;
+    do {
+        if (access(WIFI_DRIVER_STATE_CTRL_PARAM_SECONDARY, W_OK) == 0)
+            break;
+        nanosleep(&ts, (struct timespec *)NULL);
+    } while (--count > 0); /* wait at most 1 second for completion. */
+    if (count == 0) {
+        ALOGE("Failed to access secondary WIFI driver state control param %s, %d at %s",
+              strerror(errno), errno, WIFI_DRIVER_STATE_CTRL_PARAM_SECONDARY);
+        return -1;
+    }
+    fd = TEMP_FAILURE_RETRY(open(WIFI_DRIVER_STATE_CTRL_PARAM_SECONDARY, O_WRONLY));
+    if (fd < 0 ) {
+        ALOGE("Failed to open secondary WIFI driver state control param at %s",
+              WIFI_DRIVER_STATE_CTRL_PARAM_SECONDARY);
+        close(fd);
+        return -1;
+    }
+    len = strlen(state) + 1;
+    if (TEMP_FAILURE_RETRY(write(fd, state, len)) != len) {
+        ALOGE("Failed to write dual WIFI driver state control param at %s",
+              WIFI_DRIVER_STATE_CTRL_PARAM_SECONDARY);
+        close(fd);
+        ret = -1;
+    }
+    close(fd);
+    return ret;
+}
+#endif
+
 #ifdef WIFI_DRIVER_STATE_CTRL_PARAM
 static int wifi_update_driver_state(const char *state) {
     struct timespec ts;
@@ -995,6 +1033,7 @@ wifi_error wifi_wait_for_driver_ready(void)
 {
     // This function will wait to make sure basic client netdev is created
     // Function times out after 10 seconds
+    char dual_wlan_status[PROPERTY_VALUE_MAX];
     int count = (POLL_DRIVER_MAX_TIME_MS * 1000) / POLL_DRIVER_DURATION_US;
     FILE *fd;
 
@@ -1003,6 +1042,15 @@ wifi_error wifi_wait_for_driver_ready(void)
         return WIFI_ERROR_UNKNOWN;
     }
 #endif
+
+     if (property_get(DUAL_WLAN_PROP_NAME, dual_wlan_status, NULL)) {
+#if defined(WIFI_DRIVER_STATE_CTRL_PARAM) && defined(WIFI_DRIVER_STATE_CTRL_PARAM_SECONDARY) && defined(WIFI_DRIVER_STATE_ON)
+         //dual wlan case
+         if (wifi_update_secondary_driver_state(WIFI_DRIVER_STATE_ON) < 0) {
+             return WIFI_ERROR_UNKNOWN;
+         }
+#endif
+     }
 
     do {
         if ((fd = fopen("/sys/class/net/wlan0", "r")) != NULL) {
