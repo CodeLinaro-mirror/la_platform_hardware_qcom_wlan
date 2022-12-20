@@ -37,6 +37,16 @@
 #include <net/if.h>
 #include <vector>
 #include "wificonfigcommand.h"
+#include <cutils/properties.h>
+
+#define  MAX_SAP_NUM  2
+static const char IFACE_ON_WLAN_SECONDARY_PROPERTY[MAX_SAP_NUM][PROPERTY_VALUE_MAX] =
+                                               {"ro.vendor.wlan.secondary.sap.1stiface",
+                                                "ro.vendor.wlan.secondary.sap.2ndiface"};
+static const char DEFAULT_IFACE_NAME_ON_WLAN_SECONDARY_PROPERTY[] = "ro.vendor.wlan.secondary.iface";
+static const char DUAL_WLAN_STATUS_PROPERTY[] = "ro.vendor.wlan.dual_wlan_enabled";
+char kIfaceNameOnWlanSecondary[PROPERTY_VALUE_MAX];
+
 
 /* Implementation of the API functions exposed in wifi_config.h */
 wifi_error wifi_extended_dtim_config_set(wifi_request_id id,
@@ -849,12 +859,34 @@ done:
     return ret;
 }
 
+//when the create interface name equals to the value stored in property
+//'ro.vendor.wlan.secondary.sap.1stiface' or "ro.vendor.wlan.secondary.sap.2ndiface"
+//which will be initialized in init script for dual wlan case,
+//then this interface will be created on second wlan chip
+static bool is_wifi_interface_create_on_second_wlan_chip(const char* ifname)
+{
+    char ifaceNameOnSecondaryWlan[MAX_SAP_NUM][PROPERTY_VALUE_MAX];
+    for (unsigned idx = 0; idx < MAX_SAP_NUM; idx++) {
+        if (property_get(IFACE_ON_WLAN_SECONDARY_PROPERTY[idx], ifaceNameOnSecondaryWlan[idx],
+            nullptr) == 0) {
+            ALOGD("%s: %s not initialize", __FUNCTION__, IFACE_ON_WLAN_SECONDARY_PROPERTY[idx]);
+            continue;
+        }
+        if (strncmp(ifaceNameOnSecondaryWlan[idx], ifname, strlen(ifname)) == 0)
+            return true;
+    }
+
+    return false;
+
+}
+
 wifi_error wifi_virtual_interface_create(wifi_handle handle,
                                          const char* ifname,
                                          wifi_interface_type iface_type)
 {
     wifi_error ret;
     WiFiConfigCommand *wifiConfigCommand;
+    char dualWlanEnableState[PROPERTY_VALUE_MAX];
     hal_info *info = getHalInfo(handle);
     if (!info || info->num_interfaces < 1) {
         ALOGE("%s: Error wifi_handle NULL or base wlan interface not present", __FUNCTION__);
@@ -895,7 +927,29 @@ wifi_error wifi_virtual_interface_create(wifi_handle handle,
             break;
     }
     wifiConfigCommand->create_generic(NL80211_CMD_NEW_INTERFACE);
-    wifiConfigCommand->put_u32(NL80211_ATTR_IFINDEX,info->interfaces[0]->id);
+
+    if (property_get(DUAL_WLAN_STATUS_PROPERTY, dualWlanEnableState, nullptr) != 0) {
+        // dual wlan chip case
+        if (is_wifi_interface_create_on_second_wlan_chip(ifname)) {
+            // create on secondary chip
+            //if no set property ro.vendor.wlan.secondary.iface,
+            //use the value 'wlan2' as the default interface name on secondary chip
+            property_get(DEFAULT_IFACE_NAME_ON_WLAN_SECONDARY_PROPERTY, kIfaceNameOnWlanSecondary,"wlan2");
+            wifiConfigCommand->put_u32(NL80211_ATTR_IFINDEX,if_nametoindex(kIfaceNameOnWlanSecondary));
+            ALOGD("%s: interface %s is created on secondary wifi chip, if->id:%u", __FUNCTION__, ifname,
+              if_nametoindex(kIfaceNameOnWlanSecondary));
+        } else {
+            // create on primary chip
+            //'wlan0' is created by primary wlan chip after loading primary wlan driver module
+            wifiConfigCommand->put_u32(NL80211_ATTR_IFINDEX,if_nametoindex("wlan0"));
+        }
+    }
+
+    if (property_get(DUAL_WLAN_STATUS_PROPERTY, dualWlanEnableState, nullptr) == 0) {
+        // single wlan chip case
+        wifiConfigCommand->put_u32(NL80211_ATTR_IFINDEX,info->interfaces[0]->id);
+    }
+
     wifiConfigCommand->put_string(NL80211_ATTR_IFNAME, ifname);
     wifiConfigCommand->put_u32(NL80211_ATTR_IFTYPE, type);
     /* Send the NL msg. */
