@@ -55,6 +55,8 @@ L_CFLAGS += -DCONFIG_P2P
 endif
 
 L_CFLAGS += -Werror
+L_CFLAGS += -fsanitize=cfi -fsanitize-trap=all -ftrap-function=abort -flto -fsanitize-cfi-cross-dso
+L_CFLAGS += -fsanitize-ignorelist=$(WPA_SUPPL_DIR)/../compiler-rt/lib/cfi/cfi_blocklist.txt -fvisibility=default
 
 ########################
 
