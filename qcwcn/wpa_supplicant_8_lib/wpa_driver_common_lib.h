@@ -121,6 +121,10 @@
 	QCA_WLAN_VENDOR_ATTR_GET_STA_INFO_ROAM_INVOKE_FAIL_REASON
 #define GET_STA_INFO_MAX \
 	QCA_WLAN_VENDOR_ATTR_GET_STA_INFO_MAX
+#define CONFIG_LISTEN_INTERVAL_MIN 0
+#define CONFIG_LISTEN_INTERVAL_MAX 10
+
+#define RATEMASK_PARAMS_TYPE_MAX  4
 
 struct bss_info {
 	uint8_t oui[OUI_LEN];
@@ -162,11 +166,14 @@ enum get_info_cmd {
 struct resp_info {
 	u32 subcmd;
 	char *reply_buf;
-	int reply_buf_len;
+	size_t reply_buf_len;
 	enum get_info_cmd cmd_type;
 	uint8_t mac_addr[MAC_ADDR_LEN];
 	u32 freq;
 	uint8_t country[COUNTRY_LEN];
+	int cmd_oper;
+	u8 sub_attr;
+	struct wpa_driver_nl80211_data *drv;
 };
 
 #define QCA_NL80211_VENDOR_SUBCMD_GET_STATION 121
