@@ -264,7 +264,7 @@ struct mcc_quota {
 };
 
 
-static char *get_next_arg(char *cmd)
+char *get_next_arg(char *cmd)
 {
 	char *pos = cmd;
 
@@ -2708,7 +2708,7 @@ static u32 get_u32_from_string(char *cmd_string, int *ret)
 	return val;
 }
 
-static s32 get_s32_from_string(char *cmd_string, int *ret)
+s32 get_s32_from_string(char *cmd_string, int *ret)
 {
 	s64 val64 = 0;
 	s32 val = 0;
