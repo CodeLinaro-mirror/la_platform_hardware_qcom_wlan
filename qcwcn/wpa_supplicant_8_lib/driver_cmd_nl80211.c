@@ -1384,6 +1384,12 @@ static int wpa_driver_ioctl(struct i802_bss *bss, char *cmd,
 	android_wifi_priv_cmd priv_cmd;
 	memset(&ifr, 0, sizeof(ifr));
 	memset(&priv_cmd, 0, sizeof(priv_cmd));
+
+	if (strlen(cmd) + 1 > buf_len) {
+		wpa_printf(MSG_ERROR, "%s: cmd length is invalid\n",
+			   __func__);
+		return -EINVAL;
+	}
 	os_memcpy(buf, cmd, strlen(cmd) + 1);
 	strlcpy(ifr.ifr_name, bss->ifname, IFNAMSIZ);
 	priv_cmd.buf = buf;
@@ -1441,16 +1447,9 @@ static int wpa_driver_send_get_sta_info_cmd(struct i802_bss *bss, u8 *mac,
 	*status = send_nlmsg((struct nl_sock *)drv->global->nl, nlmsg,
 			     get_sta_info_handler, &info);
 	if (*status != 0) {
-		if (*status == -EOPNOTSUPP) {
-			wpa_printf(MSG_INFO,"Command is not supported, try legacy command");
-			*new_cmd = false;
-			return wpa_driver_send_get_sta_info_legacy_cmd(bss,
-								       mac,
-								       status);
-		} else {
-			wpa_printf(MSG_ERROR,"Failed to send nl message with err %d", *status);
-			return -1;
-		}
+		wpa_printf(MSG_ERROR,"Failed to send nl message with err %d, retrying with legacy command", *status);
+		*new_cmd = false;
+		return wpa_driver_send_get_sta_info_legacy_cmd(bss,mac,status);
 	}
 
 	g_sta_info.num_request_vendor_sta_info++;
@@ -2042,6 +2041,12 @@ int wpa_driver_nl80211_driver_cmd(void *priv, char *cmd, char *buf,
 	} else { /* Use private command */
 		memset(&ifr, 0, sizeof(ifr));
 		memset(&priv_cmd, 0, sizeof(priv_cmd));
+
+		if (strlen(cmd) + 1 > buf_len) {
+			wpa_printf(MSG_ERROR, "%s: cmd length is invalid\n",
+				   __func__);
+			return -EINVAL;
+		}
 		os_memcpy(buf, cmd, strlen(cmd) + 1);
 		os_strlcpy(ifr.ifr_name, bss->ifname, IFNAMSIZ);
 
