@@ -73,82 +73,42 @@ int nan_pairing_responder_pmksa_cache_get(struct rsn_pmksa_cache *pmksa,
     return -1;
 }
 
-static void nan_pairing_responder_start(hal_info *info, u8 *peer_addr,
-                                        bool is_opportunistic, bool verify)
+void NanCommand::notifyPairingResponderResponse(transaction_id id, u32 pairing_id)
 {
-    struct pasn_data *pasn;
+    NanResponseMsg rsp_data;
+
+    if (mHandler.NotifyResponse) {
+        memset(&rsp_data, 0, sizeof(rsp_data));
+        rsp_data.status = NAN_STATUS_SUCCESS;
+        rsp_data.response_type = NAN_PAIRING_RESPONDER_RESPONSE;
+        rsp_data.body.pairing_request_response.paring_instance_id = pairing_id;
+        (*mHandler.NotifyResponse)(id, &rsp_data);
+    }
+}
+
+void nan_pairing_notify_responder_response(wifi_handle handle, u8 *bssid)
+{
+    hal_info *info = getHalInfo(handle);
     struct nan_pairing_peer_info *peer;
-    u8 pmkid[PMKID_LEN] = {0};
-    struct wpa_secure_nan *secure_nan;
+    NanCommand *nanCommand = NULL;
 
-    if (!info) {
-        ALOGE("%s: Error hal_info NULL", __FUNCTION__);
+    nanCommand = NanCommand::instance(handle);
+    if (nanCommand == NULL) {
+        ALOGE("%s: Error NanCommand NULL", __FUNCTION__);
         return;
     }
 
-    secure_nan = info->secure_nan;
-    if (!secure_nan) {
-        ALOGE("%s: secure NAN uninitialized", __FUNCTION__);
-        return;
-    }
-
-    peer = nan_pairing_get_peer_from_list(secure_nan, peer_addr);
+    peer = nan_pairing_get_peer_from_list(info->secure_nan, bssid);
     if (!peer) {
-        ALOGE("%s: peer not found : ADDR=" MACSTR,
-              __FUNCTION__, MAC2STR(peer_addr));
+        ALOGE("nl80211: Peer not found in the pairing list");
         return;
     }
 
-    pasn = &peer->pasn;
-    pasn->derive_kdk = true;
-    pasn->kdk_len = WPA_KDK_MAX_LEN;
-    peer->peer_role = SECURE_NAN_PAIRING_INITIATOR;
-
-    if (secure_nan->rsne)
-        wpabuf_free(secure_nan->rsne);
-    if (secure_nan->rsnxe)
-        wpabuf_free(secure_nan->rsnxe);
-
-    pasn->cipher = WPA_CIPHER_CCMP;
-    pasn->rsn_pairwise = WPA_CIPHER_CCMP;
-    if (!is_opportunistic) {
-        pasn->akmp = WPA_KEY_MGMT_SAE;
-        pasn->wpa_key_mgmt = WPA_KEY_MGMT_SAE;
-        pasn->rsnxe_capab |= BIT(WLAN_RSNX_CAPAB_SAE_H2E);
-    } else {
-       pasn->akmp = WPA_KEY_MGMT_PASN;
-       pasn->wpa_key_mgmt = WPA_KEY_MGMT_PASN;
-    }
-
-    if (verify) {
-        // Note: Framework send local NIK, use it and derive new NIRA
-        if ((secure_nan->dev_nik->nira_nonce_len +
-             secure_nan->dev_nik->nira_tag_len) > PMKID_LEN) {
-            ALOGE("%s: Invalid nonce/tag len, nonce_len = %d, tag len = %d",
-                  __FUNCTION__, secure_nan->dev_nik->nira_nonce_len,
-                  secure_nan->dev_nik->nira_tag_len);
-        } else {
-            os_memcpy(pmkid, secure_nan->dev_nik->nira_nonce,
-                      secure_nan->dev_nik->nira_nonce_len);
-            os_memcpy(&pmkid[secure_nan->dev_nik->nira_nonce_len],
-                      secure_nan->dev_nik->nira_tag,
-                      secure_nan->dev_nik->nira_tag_len);
-            pasn->custom_pmkid_valid = true;
-            os_memcpy(pasn->custom_pmkid, pmkid, PMKID_LEN);
-        }
-        // construct wrapped data for csia, nira
-        nan_pairing_add_verification_ies(secure_nan, pasn, peer->peer_role);
-    } else {
-        // construct wrapped data for dcea, csia, npba
-        nan_pairing_add_setup_ies(secure_nan, pasn, peer->peer_role);
-    }
-
-    secure_nan->rsnxe = nan_pairing_generate_rsnxe(pasn->akmp);
-    if (secure_nan->rsnxe)
-        pasn->rsnxe_ie = wpabuf_head_u8(secure_nan->rsnxe);
-
-    pasn->pmksa = secure_nan->responder_pmksa;
-    return;
+    if (peer->trans_id_valid) {
+        nanCommand->notifyPairingResponderResponse(peer->trans_id,
+                                                   peer->pairing_instance_id);
+        peer->trans_id_valid = false;
+   }
 }
 
 wifi_error nan_pairing_indication_response(transaction_id id,
@@ -186,17 +146,33 @@ wifi_error nan_pairing_indication_response(transaction_id id,
         return WIFI_ERROR_UNKNOWN;
     }
 
+    if (is_zero_ether_addr(nanCommand->getClusterAddr())) {
+        ALOGE("%s: Invalid Cluster Address", __FUNCTION__);
+        return WIFI_ERROR_UNKNOWN;
+    }
+
     peer = nan_pairing_get_peer_from_id(secure_nan, msg->pairing_instance_id);
-    if (!peer && !peer->frame) {
-        ALOGE("%s: no frame to process", __FUNCTION__);
+    if (!peer) {
+        ALOGE("%s: peer not found, pairing id: %d", __FUNCTION__,
+              msg->pairing_instance_id);
         return WIFI_ERROR_INVALID_ARGS;
     }
 
+    if (!peer->frame) {
+        ALOGE("%s: no auth frame to process", __FUNCTION__);
+        peer->is_pairing_in_progress = false;
+        return WIFI_ERROR_UNKNOWN;
+    }
+
     pasn = &peer->pasn;
+    pasn->derive_kdk = true;
+    pasn->kdk_len = WPA_KDK_MAX_LEN;
+    peer->peer_role = SECURE_NAN_PAIRING_INITIATOR;
 
     if (msg->rsp_code == NAN_PAIRING_REQUEST_REJECT) {
         ALOGE("%s: received reject rsp", __FUNCTION__);
-        return WIFI_ERROR_UNKNOWN;
+        peer->is_pairing_in_progress = false;
+        goto fail;
     }
 
     mgmt = (struct ieee80211_mgmt *)peer->frame->data;
@@ -204,51 +180,99 @@ wifi_error nan_pairing_indication_response(transaction_id id,
     memcpy(pasn->bssid, nanCommand->getClusterAddr(), NAN_MAC_ADDR_LEN);
     os_memcpy(pasn->peer_addr, (u8 *)mgmt->sa, NAN_MAC_ADDR_LEN);
 
-    nan_pairing_responder_start(info, peer->bssid, msg->is_opportunistic,
-                                (msg->nan_pairing_request_type == NAN_PAIRING_VERIFICATION));
+    if (msg->nan_pairing_request_type == NAN_PAIRING_VERIFICATION) {
+        if (msg->akm == SAE)
+            pasn->akmp = WPA_KEY_MGMT_SAE;
+         else
+            pasn->akmp = WPA_KEY_MGMT_PASN;
 
-    if (!msg->is_opportunistic) {
-        pasn->akmp = WPA_KEY_MGMT_SAE;
-       /* Get the security key and configure it to secure pasn ctx */
-       if (msg->nan_pairing_request_type == NAN_PAIRING_VERIFICATION) {
-           ALOGV("%s: verification, key info not required", __FUNCTION__);
-       } else if (msg->key_info.key_type == NAN_SECURITY_KEY_INPUT_PASSPHRASE) {
-          nan_pairing_set_password(peer,
-                              msg->key_info.body.passphrase_info.passphrase,
-                              msg->key_info.body.passphrase_info.passphrase_len);
+        // Configure NIK from the user.
+        memcpy(secure_nan->dev_nik->nik_data, msg->nan_identity_key,
+               NAN_IDENTITY_KEY_LEN);
+        secure_nan->dev_nik->nik_len = NAN_IDENTITY_KEY_LEN;
+        nan_pairing_set_nira(info->secure_nan);
 
-       } else if (msg->key_info.key_type == NAN_SECURITY_KEY_INPUT_PMK) {
-          ALOGE("%s: Error PMK not supported", __FUNCTION__);
-          goto fail;
-       } else {
-          ALOGE("%s: Error key type invalid", __FUNCTION__);
-          goto fail;
-       }
+        if ((secure_nan->dev_nik->nira_nonce_len +
+             secure_nan->dev_nik->nira_tag_len) > PMKID_LEN) {
+            ALOGE("%s: Invalid nonce/tag len, nonce_len = %d, tag len = %d",
+                  __FUNCTION__, secure_nan->dev_nik->nira_nonce_len,
+                  secure_nan->dev_nik->nira_tag_len);
+            goto fail;
+        } else {
+            os_memcpy(pasn->custom_pmkid, secure_nan->dev_nik->nira_nonce,
+                      secure_nan->dev_nik->nira_nonce_len);
+            os_memcpy(&pasn->custom_pmkid[secure_nan->dev_nik->nira_nonce_len],
+                      secure_nan->dev_nik->nira_tag,
+                      secure_nan->dev_nik->nira_tag_len);
+            pasn->custom_pmkid_valid = true;
+        }
+        // construct wrapped data for csia, nira
+        nan_pairing_add_verification_ies(secure_nan, pasn, peer->peer_role);
     } else {
-        pasn->akmp = WPA_KEY_MGMT_PASN;
+        if (!msg->is_opportunistic) {
+            pasn->akmp = WPA_KEY_MGMT_SAE;
+            pasn->wpa_key_mgmt = WPA_KEY_MGMT_SAE;
+            pasn->rsnxe_capab |= BIT(WLAN_RSNX_CAPAB_SAE_H2E);
+        } else {
+            pasn->akmp = WPA_KEY_MGMT_PASN;
+            pasn->wpa_key_mgmt = WPA_KEY_MGMT_PASN;
+        }
+        if (msg->cipher_type == NAN_CIPHER_SUITE_PUBLIC_KEY_PASN_256_MASK) {
+            pasn->cipher = WPA_CIPHER_CCMP_256;
+            pasn->rsn_pairwise = WPA_CIPHER_CCMP_256;
+        } else {
+            pasn->cipher = WPA_CIPHER_CCMP;
+            pasn->rsn_pairwise = WPA_CIPHER_CCMP;
+        }
+
+        if (msg->key_info.key_type == NAN_SECURITY_KEY_INPUT_PASSPHRASE) {
+            nan_pairing_set_password(peer,
+                             msg->key_info.body.passphrase_info.passphrase,
+                             msg->key_info.body.passphrase_info.passphrase_len);
+
+        } else if (msg->key_info.key_type == NAN_SECURITY_KEY_INPUT_PMK) {
+            ALOGE("%s: Error key type PMK is invalid ", __FUNCTION__);
+            goto fail;
+        }
+        // construct wrapped data for dcea, csia, npba
+        nan_pairing_add_setup_ies(secure_nan, pasn, peer->peer_role);
     }
+
+    if (secure_nan->rsnxe)
+        wpabuf_free(secure_nan->rsnxe);
+
+    secure_nan->rsnxe = nan_pairing_generate_rsnxe(pasn->akmp);
+    if (secure_nan->rsnxe)
+        pasn->rsnxe_ie = wpabuf_head_u8(secure_nan->rsnxe);
+
+    pasn->pmksa = secure_nan->responder_pmksa;
+    peer->trans_id = id;
+    peer->trans_id_valid = true;
     ret = handle_auth_pasn_1(pasn, pasn->own_addr, (u8 *)mgmt->sa, mgmt,
                              peer->frame->len);
     if (ret == -1) {
         ALOGE("%s: Handle auth pasn 1 failed", __FUNCTION__);
         wpa_pasn_reset(pasn);
         peer->peer_role = SECURE_NAN_IDLE;
+        goto fail;
     }
     free(peer->frame);
     peer->frame = NULL;
+    wifi_get_iface_name(iface, secure_nan->iface_name,
+                        sizeof(secure_nan->iface_name));
 
     return WIFI_SUCCESS;
 
 fail:
     free(peer->frame);
     peer->frame = NULL;
+    peer->is_pairing_in_progress = false;
     return WIFI_ERROR_UNKNOWN;
 }
 
 int nan_pairing_handle_pasn_auth(wifi_handle handle, const u8 *data, size_t len)
 {
     int ret = 0;
-    u16 bootstrap;
     struct pasn_data *pasn;
     const u8 *nan_attr_ie;
     bool nira_present = false;
@@ -289,9 +313,6 @@ int nan_pairing_handle_pasn_auth(wifi_handle handle, const u8 *data, size_t len)
 
     if (memcmp(info->secure_nan->own_addr, nanCommand->getNmi(), NAN_MAC_ADDR_LEN) != 0) {
         memcpy(info->secure_nan->own_addr, nanCommand->getNmi(), NAN_MAC_ADDR_LEN);
-        // Update NIRA when src mac address changed
-        if (info->secure_nan->dev_nik)
-            nan_pairing_set_nik_nira(info->secure_nan);
     }
 
     /* PASN authentication M1 frame processing */
@@ -301,9 +322,9 @@ int nan_pairing_handle_pasn_auth(wifi_handle handle, const u8 *data, size_t len)
                          len - offsetof(struct ieee80211_mgmt, u.auth.variable),
                          NAN_ATTR_ID_NIRA);
 
+        entry = nan_pairing_get_peer_from_list(info->secure_nan,
+                                               (u8 *)mgmt->sa);
         if (nan_attr_ie) {
-            entry = nan_pairing_get_peer_from_list(info->secure_nan,
-                                                   (u8 *)mgmt->sa);
             if (!entry || !entry->is_paired) {
                 ALOGI("PASN Responder: NIRA present, but peer entry not found");
                 return WIFI_ERROR_UNKNOWN;
@@ -314,10 +335,18 @@ int nan_pairing_handle_pasn_auth(wifi_handle handle, const u8 *data, size_t len)
             memcpy(nira_nonce, nira->nonce_tag, NAN_IDENTITY_NONCE_LEN);
             memcpy(nira_tag, &nira->nonce_tag[NAN_IDENTITY_NONCE_LEN],
                    NAN_IDENTITY_TAG_LEN);
-            bootstrap = entry->peer_supported_bootstrap;
+        }
+
+        if (entry && entry->is_pairing_in_progress) {
+            ALOGV("PASN Responder: Drop PASN M1 frame as Pairing in progress");
+            return WIFI_ERROR_UNKNOWN;
         }
 
         entry = nan_pairing_add_peer_to_list(info->secure_nan, (u8 *)mgmt->sa);
+        if (!entry) {
+            ALOGE("PASN Responder: Unable to add peer");
+            return WIFI_ERROR_UNKNOWN;
+        }
 
         if (data && (len < MAX_FRAME_LEN_80211_MGMT)) {
             entry->frame = (struct pasn_auth_frame *)malloc(sizeof(struct pasn_auth_frame));
@@ -326,6 +355,7 @@ int nan_pairing_handle_pasn_auth(wifi_handle handle, const u8 *data, size_t len)
                 entry->frame->len = len;
             }
         }
+        entry->is_pairing_in_progress = true;
 
         nan_attr_ie = nan_get_attr_from_ies(mgmt->u.auth.variable,
                          len - offsetof(struct ieee80211_mgmt, u.auth.variable),
@@ -340,10 +370,9 @@ int nan_pairing_handle_pasn_auth(wifi_handle handle, const u8 *data, size_t len)
                          NAN_ATTR_ID_NPBA);
         if (nan_attr_ie) {
            nan_npba *npba = (nan_npba *)nan_attr_ie;
-           bootstrap = npba->bootstrapping_method;
+           entry->peer_supported_bootstrap = npba->bootstrapping_method;
         }
 
-        entry->peer_supported_bootstrap = bootstrap;
         entry->pairing_instance_id = info->secure_nan->pairing_id++;
         entry->peer_role = SECURE_NAN_PAIRING_INITIATOR;
 

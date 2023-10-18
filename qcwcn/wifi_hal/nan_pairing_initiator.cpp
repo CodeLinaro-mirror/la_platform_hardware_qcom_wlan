@@ -73,6 +73,43 @@ int nan_pairing_initiator_pmksa_cache_get(struct rsn_pmksa_cache *pmksa,
     return -1;
 }
 
+void NanCommand::notifyPairingInitiatorResponse(transaction_id id, u32 pairing_id)
+{
+    NanResponseMsg rsp_data;
+
+    if (mHandler.NotifyResponse) {
+        memset(&rsp_data, 0, sizeof(rsp_data));
+        rsp_data.status = NAN_STATUS_SUCCESS;
+        rsp_data.response_type = NAN_PAIRING_INITIATOR_RESPONSE;
+        rsp_data.body.pairing_request_response.paring_instance_id = pairing_id;
+        (*mHandler.NotifyResponse)(id, &rsp_data);
+    }
+}
+
+void nan_pairing_notify_initiator_response(wifi_handle handle, u8 *bssid)
+{
+    hal_info *info = getHalInfo(handle);
+    struct nan_pairing_peer_info *peer;
+    NanCommand *nanCommand = NULL;
+
+    nanCommand = NanCommand::instance(handle);
+    if (nanCommand == NULL) {
+        ALOGE("%s: Error NanCommand NULL", __FUNCTION__);
+        return;
+    }
+
+    peer = nan_pairing_get_peer_from_list(info->secure_nan, bssid);
+    if (!peer) {
+        ALOGE("nl80211: Peer not found in the pairing list");
+        return;
+    }
+
+    if (peer->trans_id_valid) {
+        nanCommand->notifyPairingInitiatorResponse(peer->trans_id,
+                                                   peer->pairing_instance_id);
+        peer->trans_id_valid = false;
+   }
+}
 
 /*  Function to trigger pairing setup or verification request */
 wifi_error nan_pairing_request(transaction_id id,
@@ -80,7 +117,6 @@ wifi_error nan_pairing_request(transaction_id id,
                                NanPairingRequest* msg)
 {
     int ret;
-    int akmp, cipher;
     unsigned int group = 19;
     u8 pmkid[PMKID_LEN] = {0};
     struct pasn_data *pasn;
@@ -89,6 +125,8 @@ wifi_error nan_pairing_request(transaction_id id,
     wifi_handle wifiHandle = getWifiHandle(iface);
     hal_info *info = getHalInfo(wifiHandle);
     struct nan_pairing_peer_info *peer;
+    int akmp = WPA_KEY_MGMT_PASN;
+    int cipher = WPA_CIPHER_CCMP;
 
     if (!info || !info->secure_nan) {
         ALOGE("%s: Error hal_info NULL", __FUNCTION__);
@@ -106,42 +144,45 @@ wifi_error nan_pairing_request(transaction_id id,
         return WIFI_ERROR_UNKNOWN;
     }
 
+    if (is_zero_ether_addr(nanCommand->getClusterAddr())) {
+        ALOGE("%s: Invalid Cluster Address", __FUNCTION__);
+        return WIFI_ERROR_UNKNOWN;
+    }
+
     secure_nan = info->secure_nan;
     if (msg->nan_pairing_request_type == NAN_PAIRING_SETUP) {
         peer = nan_pairing_add_peer_to_list(secure_nan,
                                             msg->peer_disc_mac_addr);
-        if (peer)
-            peer->peer_role = SECURE_NAN_PAIRING_RESPONDER;
+        if (!msg->is_opportunistic)
+            akmp = WPA_KEY_MGMT_SAE;
+
     } else {
         peer = nan_pairing_get_peer_from_list(secure_nan,
                                               msg->peer_disc_mac_addr);
+        if (msg->akm == SAE)
+            akmp = WPA_KEY_MGMT_SAE;
     }
     if (!peer) {
         ALOGE("%s: Peer not present", __FUNCTION__);
         return WIFI_ERROR_INVALID_ARGS;
     }
+    peer->peer_role = SECURE_NAN_PAIRING_RESPONDER;
+
+    if (msg->cipher_type == NAN_CIPHER_SUITE_PUBLIC_KEY_PASN_256_MASK)
+        cipher = WPA_CIPHER_CCMP_256;
+
+    if (memcmp(secure_nan->own_addr, nanCommand->getNmi(), NAN_MAC_ADDR_LEN) != 0)
+        memcpy(secure_nan->own_addr, nanCommand->getNmi(), NAN_MAC_ADDR_LEN);
 
     pasn = &peer->pasn;
-    cipher = WPA_CIPHER_CCMP;
-
-    if (memcmp(secure_nan->own_addr, nanCommand->getNmi(), NAN_MAC_ADDR_LEN) != 0) {
-        memcpy(secure_nan->own_addr, nanCommand->getNmi(), NAN_MAC_ADDR_LEN);
-        // Update NIRA when src mac address changed
-        if (info->secure_nan->dev_nik)
-            nan_pairing_set_nik_nira(info->secure_nan);
-    }
-
     memcpy(secure_nan->cluster_addr, nanCommand->getClusterAddr(), NAN_MAC_ADDR_LEN);
     memcpy(pasn->own_addr, nanCommand->getNmi(), NAN_MAC_ADDR_LEN);
     memcpy(pasn->bssid, nanCommand->getClusterAddr(), NAN_MAC_ADDR_LEN);
     os_memcpy(pasn->peer_addr, (u8 *)msg->peer_disc_mac_addr, NAN_MAC_ADDR_LEN);
 
-    if (msg->is_opportunistic)
-        akmp = WPA_KEY_MGMT_PASN;
-    else
-        akmp = WPA_KEY_MGMT_SAE;
-
     pasn->derive_kdk = true;
+    pasn->akmp = akmp;
+    pasn->cipher = cipher;
     pasn->kdk_len = WPA_KDK_MAX_LEN;
     pasn->pmksa = (struct rsn_pmksa_cache *)secure_nan->initiator_pmksa;
     peer->peer_role = SECURE_NAN_PAIRING_RESPONDER;
@@ -171,13 +212,14 @@ wifi_error nan_pairing_request(transaction_id id,
             return WIFI_ERROR_UNKNOWN;
         }
     } else if (msg->nan_pairing_request_type == NAN_PAIRING_VERIFICATION) {
+        // Configure NIK from the user.
+        memcpy(secure_nan->dev_nik->nik_data, msg->nan_identity_key,
+               NAN_IDENTITY_KEY_LEN);
+        secure_nan->dev_nik->nik_len = NAN_IDENTITY_KEY_LEN;
+        nan_pairing_set_nira(info->secure_nan);
         // construct wrapped data for csia, nira
         nan_pairing_add_verification_ies(secure_nan, pasn, peer->peer_role);
 
-        if (!secure_nan->dev_nik) {
-            ALOGE("%s: Device NIK NULL", __FUNCTION__);
-            return WIFI_ERROR_UNKNOWN;
-        }
         os_memcpy(pmkid, secure_nan->dev_nik->nira_nonce,
                   secure_nan->dev_nik->nira_nonce_len);
         os_memcpy(&pmkid[secure_nan->dev_nik->nira_nonce_len],
@@ -194,6 +236,11 @@ wifi_error nan_pairing_request(transaction_id id,
             return WIFI_ERROR_UNKNOWN;
         }
     }
+    peer->trans_id = id;
+    peer->trans_id_valid = true;
+    wifi_get_iface_name(iface, secure_nan->iface_name,
+                        sizeof(secure_nan->iface_name));
+
     return WIFI_SUCCESS;
 }
 

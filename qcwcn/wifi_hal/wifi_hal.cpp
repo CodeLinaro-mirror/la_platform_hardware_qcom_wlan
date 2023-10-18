@@ -534,7 +534,7 @@ static wifi_error wifi_init_user_sock(hal_info *info)
 
 static wifi_error wifi_init_cld80211_sock_cb(hal_info *info)
 {
-    struct nl_cb *cb = nl_socket_get_cb(info->cldctx->sock);
+    struct nl_cb *cb = nl_socket_get_cb(info->user_sock);
     if (cb == NULL) {
         ALOGE("Could not get cb");
         return WIFI_ERROR_UNKNOWN;
@@ -1111,6 +1111,11 @@ wifi_error init_wifi_vendor_hal_func_table(wifi_hal_fn *fn) {
     fn->wifi_get_supported_iface_concurrency_matrix =
                                 wifi_get_supported_iface_concurrency_matrix;
 #endif /* TARGET_SUPPORTS_WEARABLES */
+    fn->wifi_nan_pairing_request = nan_pairing_request;
+    fn->wifi_nan_pairing_indication_response = nan_pairing_indication_response;
+    fn->wifi_nan_bootstrapping_request = nan_bootstrapping_request;
+    fn->wifi_nan_bootstrapping_indication_response =
+                                nan_bootstrapping_indication_response;
 
     return WIFI_SUCCESS;
 }
@@ -1247,7 +1252,11 @@ wifi_error wifi_initialize(wifi_handle *handle)
 
     info->cldctx = cld80211_init();
     if (info->cldctx != NULL) {
-        info->user_sock = info->cldctx->sock;
+        info->user_sock = cld80211_get_nl_socket_ctx(info->cldctx);
+        if (!info->user_sock) {
+            ALOGE("cld sock is NULL");
+            goto cld80211_cleanup;
+        }
         ret = wifi_init_cld80211_sock_cb(info);
         if (ret != WIFI_SUCCESS) {
             ALOGE("Could not set cb for CLD80211 family");
@@ -4014,6 +4023,13 @@ void wifihal_event_mgmt_tx_status(wifi_handle handle, struct nlattr *cookie,
 
     pasn = &peer->pasn;
 
+    if (mgmt->u.auth.auth_transaction == 1)
+        nan_pairing_notify_initiator_response(handle, (u8 *)mgmt->da);
+    else if (mgmt->u.auth.auth_transaction == 2) {
+        peer->is_pairing_in_progress = false;
+        nan_pairing_notify_responder_response(handle, (u8 *)mgmt->da);
+     }
+
     ALOGV("nl80211: Authentication frame TX status: ack=%d", !!ack);
     ret = wpa_pasn_auth_tx_status(pasn, frame, len, ack != NULL);
     if (ret == 1) {
@@ -4021,8 +4037,6 @@ void wifihal_event_mgmt_tx_status(wifi_handle handle, struct nlattr *cookie,
         nan_pairing_set_keys_from_cache(handle, pasn->own_addr, pasn->peer_addr,
                                         pasn->cipher, pasn->akmp,
                                         SECURE_NAN_PAIRING_RESPONDER);
-        wpa_pasn_reset(pasn);
-        peer->is_paired = true;
         return;
     }
 }
