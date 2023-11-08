@@ -7,40 +7,9 @@
  *
  * Alternatively, this software may be distributed under the terms of BSD
  * license.
- *
- * Changes from Qualcomm Innovation Center are provided under the following license:
- *
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted (subject to the limitations in the
- * disclaimer below) provided that the following conditions are met:
- *
- *    * Redistributions of source code must retain the above copyright
- *      notice, this list of conditions and the following disclaimer.
- *
- *    * Redistributions in binary form must reproduce the above
- *      copyright notice, this list of conditions and the following
- *      disclaimer in the documentation and/or other materials provided
- *      with the distribution.
- *
- *    * Neither the name of Qualcomm Innovation Center, Inc. nor the names of its
- *      contributors may be used to endorse or promote products derived
- *      from this software without specific prior written permission.
- *
- * NO EXPRESS OR IMPLIED LICENSES TO ANY PARTY'S PATENT RIGHTS ARE
- * GRANTED BY THIS LICENSE. THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT
- * HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED
- * WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
- * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
- * IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR
- * ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE
- * GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER
- * IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
- * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
- * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * Changes from Qualcomm Technologies, Inc. are provided under the following license:
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * SPDX-License-Identifier: BSD-3-Clause-Clear
  */
 
 #include "includes.h"
@@ -71,11 +40,11 @@
 #endif
 #include "driver_cmd_nl80211_extn.h"
 #include "driver_cmd_nl80211_common.h"
+#include "driver_cmd_nl80211_mlo.h"
 
 #define WPA_PS_ENABLED		0
 #define WPA_PS_DISABLED		1
 #define UNUSED(x)	(void)(x)
-#define NL80211_ATTR_MAX_INTERNAL 256
 #define CSI_STATUS_REJECTED      -1
 #define CSI_STATUS_SUCCESS        0
 #define ENHANCED_CFR_VER          2
@@ -2744,7 +2713,7 @@ s32 get_s32_from_string(char *cmd_string, int *ret)
 	return val;
 }
 
-static u8 get_u8_from_string(char *cmd_string, int *ret)
+u8 get_u8_from_string(char *cmd_string, int *ret)
 {
 	long val = 0;
 	char *endptr = NULL;
@@ -6964,6 +6933,25 @@ int wpa_driver_nl80211_driver_cmd(void *priv, char *cmd, char *buf,
 		 */
 		cmd += 26;
 		return wpa_driver_cfg_coex_traffic_shaping(bss, cmd);
+	} else if (os_strncasecmp(cmd, "GET_ML_LINK_CONTROL_MODE", 24) == 0) {
+		/**
+		 * Driver command to get ML configurations
+		 * Syntax: DRIVER GET_ML_LINK_CONTROL_MODE
+		 */
+		cmd += 24;
+		return wpa_driver_get_mlo_links_control_mode(bss, buf, buf_len);
+	} else if (os_strncasecmp(cmd, "SET_ML_LINK_CONTROL_MODE ", 25) == 0) {
+		/**
+		 * Driver command to set ML configurations
+		 * Syntax: DRIVER SET_ML_LINK_CONTROL_MODE config_mode
+		 * <mode> [link_id <id> link_state <state>..]
+		 * <mode> 0 for default, 1 for user configured
+		 * <id> id is link id
+		 * <state> 0 for inactive, 1 for active
+		 */
+		cmd += 25;
+		return wpa_driver_set_mlo_links_control_mode(bss, cmd, buf,
+							     buf_len);
 	} else { /* Use private command */
 		memset(&ifr, 0, sizeof(ifr));
 		memset(&priv_cmd, 0, sizeof(priv_cmd));
