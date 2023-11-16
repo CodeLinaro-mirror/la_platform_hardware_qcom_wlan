@@ -213,6 +213,7 @@ wifi_error nan_disable_request(transaction_id id,
         if (t_nanCommand != NULL) {
             t_nanCommand->deallocSvcParams();
         }
+        secure_nan_cache_flush(info);
     }
 
 cleanup:
@@ -599,6 +600,12 @@ wifi_error nan_bootstrapping_request(transaction_id id,
     ret = nanCommand->putNanBootstrappingReq(id, msg, pub_sub_id);
     if (ret != WIFI_SUCCESS) {
         ALOGE("%s: putNanBootstrappingReq Error:%d", __FUNCTION__, ret);
+        goto cleanup;
+    }
+
+    entry = nan_pairing_get_peer_from_list(info->secure_nan, msg->peer_disc_mac_addr);
+    if (entry && entry->is_pairing_in_progress) {
+        ALOGV("%s: pairing in progress", __FUNCTION__);
         goto cleanup;
     }
 
