@@ -33,6 +33,13 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+/*
+ * Changes from Qualcomm Innovation Center, Inc. are provided under the following license:
+ *
+ * Copyright (c) 2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * SPDX-License-Identifier: BSD-3-Clause-Clear
+ */
+
 #ifndef WIFIHAL_CTRL_H
 #define WIFIHAL_CTRL_H
 
@@ -41,6 +48,10 @@
 #include <fcntl.h>
 
 #include "stdlib.h"
+
+#include <stdint.h>
+#include <stdio.h>
+#include <sys/socket.h>
 
 #ifdef ANDROID
 #include <dirent.h>
@@ -225,6 +236,8 @@ int wifihal_ctrl_request2(struct wifihal_ctrl *ctrl, const char *cmd, size_t cmd
  */
 int wifihal_ctrl_request(struct wifihal_ctrl *ctrl, const char *cmd, size_t cmd_len,
                          char *reply, size_t *reply_len);
+                         
+size_t strlcat(char *dst, const char *str, size_t size);                        
 
 #ifdef  __cplusplus
 }

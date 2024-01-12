@@ -15,7 +15,7 @@
  *
  * Changes from Qualcomm Innovation Center are provided under the following license:
  *
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022,2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted (subject to the limitations in the
@@ -269,8 +269,8 @@ wifi_error wifi_get_radar_history(wifi_interface_handle handle,
 wifi_error wifi_disable_next_cac(wifi_interface_handle handle);
 // some common macros
 
-#define min(x, y)       ((x) < (y) ? (x) : (y))
-#define max(x, y)       ((x) > (y) ? (x) : (y))
+#define Min(x, y)       ((x) < (y) ? (x) : (y))
+#define Max(x, y)       ((x) > (y) ? (x) : (y))
 
 #define REQUEST_ID_MAX 1000
 #define REQUEST_ID_U8_MAX 255

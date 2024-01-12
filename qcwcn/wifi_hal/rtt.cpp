@@ -26,8 +26,15 @@
  * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+/*
+ * Changes from Qualcomm Innovation Center, Inc. are provided under the following license:
+ *
+ * Copyright (c) 2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * SPDX-License-Identifier: BSD-3-Clause-Clear
+ */
+
 #define LOG_TAG  "WifiHAL"
-#include <cutils/sched_policy.h>
+//#include <cutils/sched_policy.h>
 #include <unistd.h>
 
 #include <utils/Log.h>

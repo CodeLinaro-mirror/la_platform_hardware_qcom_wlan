@@ -33,6 +33,17 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+/*
+ * Changes from Qualcomm Innovation Center, Inc. are provided under the following license:
+ *
+ * Copyright (c) 2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * SPDX-License-Identifier: BSD-3-Clause-Clear
+ */
+
+#include <errno.h>
+
+#include <cutils/memory.h>
+
 #include "wifi_hal_ctrl.h"
 
 struct wifihal_ctrl * wifihal_ctrl_open2(const char *ctrl_path,
@@ -233,4 +244,26 @@ int wifihal_ctrl_request(struct wifihal_ctrl *ctrl, const char *cmd, size_t cmd_
                          char *reply, size_t *reply_len)
 {
     return wifihal_ctrl_request2(ctrl, cmd, cmd_len, reply, reply_len, 1, 0);
+}
+
+size_t strlcat(char *dst, const char *str, size_t size)
+{
+        char *pos;
+        size_t dstlen, srclen, copy;
+
+        srclen = strlen(str);
+        dstlen = strlen(dst);
+        pos = dst + dstlen;
+
+        if (dstlen >= size)
+                return dstlen + srclen;
+
+        if (dstlen + srclen >= size)
+                copy = size - dstlen - 1;
+        else
+                copy = srclen;
+
+        memcpy(pos, str, copy);
+        pos[copy] = '\0';
+        return dstlen + srclen;
 }

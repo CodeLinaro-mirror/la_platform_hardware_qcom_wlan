@@ -20,6 +20,13 @@
  * limitations under the License.
  */
 
+/*
+ * Changes from Qualcomm Innovation Center, Inc. are provided under the following license:
+ *
+ * Copyright (c) 2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * SPDX-License-Identifier: BSD-3-Clause-Clear
+ */
+
 #include <stdint.h>
 #include <fcntl.h>
 #include <sys/socket.h>
@@ -506,7 +513,7 @@ void WifiEvent::log() {
 
     for (int i = 0; i < len; i += 16) {
         char line[81];
-        int linelen = min(16, len - i);
+        int linelen = Min(16, len - i);
         int offset = 0;
         appendFmt(line, sizeof(line), offset, "%02x", data[i]);
         for (int j = 1; j < linelen; j++) {

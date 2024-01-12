@@ -27,7 +27,7 @@
 
  * Changes from Qualcomm Innovation Center are provided under the following license:
 
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022,2024 Qualcomm Innovation Center, Inc. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause-Clear
  */
 
@@ -45,8 +45,13 @@
 #include <net/if.h>
 #include <net/if_arp.h>
 #include <sys/socket.h>
+
+#include <algorithm>
+
 #include "wificonfigcommand.h"
 #include "ifaceeventhandler.h"
+
+#include <cutils/memory.h>
 
 #define NUM_OF_SAR_LIMITS_SPECS 2
 #define NUM_OF_SPEC_CHAINS 2

@@ -15,7 +15,7 @@
  *
  * Changes from Qualcomm Innovation Center are provided under the following license:
  *
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022,2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted (subject to the limitations in the
@@ -59,13 +59,13 @@
 #include <netpacket/packet.h>
 #include <linux/filter.h>
 #include <linux/errqueue.h>
-#include <linux-private/linux/fib_rules.h>
+//#include <linux-private/linux/fib_rules.h>
 #include <linux/pkt_sched.h>
 #include <netlink/object-api.h>
 #include <netlink/netlink.h>
 #include <netlink/socket.h>
-#include <netlink-private/object-api.h>
-#include <netlink-private/types.h>
+//#include <netlink-private/object-api.h>
+//#include <netlink-private/types.h>
 
 #include "nl80211_copy.h"
 
@@ -73,6 +73,8 @@
 #include <net/if.h>
 #include <netinet/in.h>
 #include <cld80211_lib.h>
+
+#include <cutils/memory.h>
 
 #include <sys/types.h>
 #include "list.h"
@@ -1750,13 +1752,13 @@ static int send_nl_data(wifi_handle handle, wifihal_ctrl_req_t *ctrl_msg)
         retval = -1;
         goto nl_out;
     }
-    memcpy((char *)msg->nm_nlh, (char *)ctrl_msg->data, ctrl_msg->data_len);
+    memcpy((char *)nlmsg_hdr(msg), (char *)ctrl_msg->data, ctrl_msg->data_len);
 
    if(ctrl_msg->family_name == GENERIC_NL_FAMILY)
    {
      //! Before sending the received gennlmsg to kernel,
      //! better to have checks for allowed commands
-     retval = validate_genl_msg(msg->nm_nlh, ctrl_msg->family_name, ctrl_msg->cmd_id);
+     retval = validate_genl_msg(nlmsg_hdr(msg), ctrl_msg->family_name, ctrl_msg->cmd_id);
      if (retval < 0)
          goto nl_out;
 
@@ -1775,7 +1777,7 @@ static int send_nl_data(wifi_handle handle, wifihal_ctrl_req_t *ctrl_msg)
     {
       //! Before sending the received cld80211 msg to kernel,
       //! better to have checks for allowed commands
-      retval = validate_cld80211_msg(msg->nm_nlh, ctrl_msg->family_name, ctrl_msg->cmd_id);
+      retval = validate_cld80211_msg(nlmsg_hdr(msg), ctrl_msg->family_name, ctrl_msg->cmd_id);
       if (retval < 0)
          goto nl_out;
 
@@ -1857,7 +1859,7 @@ static int register_monitor_sock(wifi_handle handle, wifihal_ctrl_req_t *ctrl_ms
 
          list_for_each_entry(reg, &info->monitor_sockets, list) {
 
-           int mlen = min(match_len, reg->match_len);
+           int mlen = Min(match_len, reg->match_len);
 
            if (reg->match_len == 0)
                continue;
@@ -2822,7 +2824,7 @@ static wifi_error wifi_set_packet_filter(wifi_interface_handle iface,
             ret = vCommand->put_bytes(
                                      QCA_WLAN_VENDOR_ATTR_PACKET_FILTER_PROGRAM,
                                      (char *)&program[current_offset],
-                                     min(info->firmware_bus_max_size,
+                                     Min(info->firmware_bus_max_size,
                                      len-current_offset));
             if (ret!= WIFI_SUCCESS) {
                 ALOGE("%s: failed to put program", __FUNCTION__);
@@ -2842,7 +2844,7 @@ static wifi_error wifi_set_packet_filter(wifi_interface_handle iface,
         delete vCommand;
         vCommand = NULL;
 
-        current_offset += min(info->firmware_bus_max_size, len);
+        current_offset += Min(info->firmware_bus_max_size, len);
     } while (current_offset < len);
 
     info->apf_enabled = !!len;
@@ -3043,7 +3045,7 @@ wifi_error wifi_write_packet_filter(wifi_interface_handle iface,
         ret = vCommand->put_bytes(
                                  QCA_WLAN_VENDOR_ATTR_PACKET_FILTER_PROGRAM,
                                  (char *)&program[current_offset],
-                                 min(info->firmware_bus_max_size,
+                                 Min(info->firmware_bus_max_size,
                                  len - current_offset));
         if (ret!= WIFI_SUCCESS) {
             ALOGE("%s: failed to put program", __FUNCTION__);
@@ -3062,7 +3064,7 @@ wifi_error wifi_write_packet_filter(wifi_interface_handle iface,
         delete vCommand;
         vCommand = NULL;
 
-        current_offset += min(info->firmware_bus_max_size,
+        current_offset += Min(info->firmware_bus_max_size,
                                          len - current_offset);
     } while (current_offset < len);
 
@@ -3205,7 +3207,7 @@ static wifi_error wifi_read_packet_filter(wifi_interface_handle handle,
         if (ret != WIFI_SUCCESS)
             break;
 
-        currentLength = min(remainingLengthToBeRead, info->firmware_bus_max_size);
+        currentLength = Min(remainingLengthToBeRead, info->firmware_bus_max_size);
 
         ret = vCommand->put_u32(QCA_WLAN_VENDOR_ATTR_PACKET_FILTER_SIZE,
                                 currentLength);

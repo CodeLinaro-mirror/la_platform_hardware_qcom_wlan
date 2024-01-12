@@ -27,6 +27,13 @@
  * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+/*
+ * Changes from Qualcomm Innovation Center, Inc. are provided under the following license:
+ *
+ * Copyright (c) 2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * SPDX-License-Identifier: BSD-3-Clause-Clear
+ */
+
 #include <stdint.h>
 #include <fcntl.h>
 #include <inttypes.h>
@@ -43,8 +50,11 @@
 #include <netlink/object-api.h>
 #include <netlink/netlink.h>
 #include <netlink/socket.h>
+
+#include <netinet/in.h>
+
 #include "wifi_hal.h"
-#include <bits/in_addr.h>
+//#include <bits/in_addr.h>
 
 #define INET6_ADDRSTRLEN 46
 

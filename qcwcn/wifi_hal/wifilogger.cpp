@@ -27,7 +27,7 @@
  *
  * Changes from Qualcomm Innovation Center are provided under the following license:
  *
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022,2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted (subject to the limitations in the
@@ -721,7 +721,7 @@ wifi_error wifi_get_tx_pkt_fates(wifi_interface_handle iface,
 
     tx_fate_stats = &info->pkt_fate_stats->tx_fate_stats[0];
 
-    *n_provided_fates = min(n_requested_fates,
+    *n_provided_fates = Min(n_requested_fates,
                             info->pkt_fate_stats->n_tx_stats_collected);
 
     for (i=0; i < *n_provided_fates; i++) {
@@ -740,14 +740,14 @@ wifi_error wifi_get_tx_pkt_fates(wifi_interface_handle iface,
         if (tx_report_bufs[i].frame_inf.payload_type == FRAME_TYPE_ETHERNET_II)
             memcpy(tx_report_bufs[i].frame_inf.frame_content.ethernet_ii_bytes,
                    tx_fate_stats[i].frame_inf.frame_content,
-                   min(tx_fate_stats[i].frame_inf.frame_len,
+                   Min(tx_fate_stats[i].frame_inf.frame_len,
                        MAX_FRAME_LEN_ETHERNET));
         else if (tx_report_bufs[i].frame_inf.payload_type ==
                                                          FRAME_TYPE_80211_MGMT)
             memcpy(
                 tx_report_bufs[i].frame_inf.frame_content.ieee_80211_mgmt_bytes,
                 tx_fate_stats[i].frame_inf.frame_content,
-                min(tx_fate_stats[i].frame_inf.frame_len,
+                Min(tx_fate_stats[i].frame_inf.frame_len,
                     MAX_FRAME_LEN_80211_MGMT));
         else
             /* Currently framework is interested only two types(
@@ -791,7 +791,7 @@ wifi_error wifi_get_rx_pkt_fates(wifi_interface_handle iface,
 
     rx_fate_stats = &info->pkt_fate_stats->rx_fate_stats[0];
 
-    *n_provided_fates = min(n_requested_fates,
+    *n_provided_fates = Min(n_requested_fates,
                             info->pkt_fate_stats->n_rx_stats_collected);
 
     for (i=0; i < *n_provided_fates; i++) {
@@ -810,14 +810,14 @@ wifi_error wifi_get_rx_pkt_fates(wifi_interface_handle iface,
         if (rx_report_bufs[i].frame_inf.payload_type == FRAME_TYPE_ETHERNET_II)
             memcpy(rx_report_bufs[i].frame_inf.frame_content.ethernet_ii_bytes,
                    rx_fate_stats[i].frame_inf.frame_content,
-                   min(rx_fate_stats[i].frame_inf.frame_len,
+                   Min(rx_fate_stats[i].frame_inf.frame_len,
                    MAX_FRAME_LEN_ETHERNET));
         else if (rx_report_bufs[i].frame_inf.payload_type ==
                                                          FRAME_TYPE_80211_MGMT)
             memcpy(
                 rx_report_bufs[i].frame_inf.frame_content.ieee_80211_mgmt_bytes,
                 rx_fate_stats[i].frame_inf.frame_content,
-                min(rx_fate_stats[i].frame_inf.frame_len,
+                Min(rx_fate_stats[i].frame_inf.frame_len,
                     MAX_FRAME_LEN_80211_MGMT));
         else
             /* Currently framework is interested only two types(

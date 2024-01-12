@@ -14,12 +14,19 @@
  * limitations under the License.
  */
 
+/*
+ * Changes from Qualcomm Innovation Center, Inc. are provided under the following license:
+ *
+ * Copyright (c) 2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * SPDX-License-Identifier: BSD-3-Clause-Clear
+ */
+
 #include <stdlib.h>
 #include <linux/pkt_sched.h>
-#include <linux-private/linux/fib_rules.h>
+//#include <linux-private/linux/fib_rules.h>
 #include <netlink/object-api.h>
-#include <netlink-private/object-api.h>
-#include <netlink-private/types.h>
+//#include <netlink-private/object-api.h>
+//#include <netlink-private/types.h>
 #include <dlfcn.h>
 #include <pthread.h>
 #include "wifi_hal.h"

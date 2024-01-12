@@ -26,6 +26,13 @@
  * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+/*
+ * Changes from Qualcomm Innovation Center, Inc. are provided under the following license:
+ *
+ * Copyright (c) 2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * SPDX-License-Identifier: BSD-3-Clause-Clear
+ */
+
 #include "sync.h"
 #define LOG_TAG  "WifiHAL"
 #include <utils/Log.h>
@@ -720,11 +727,10 @@ wifi_error WifihalGeneric::wifiParseRadarHistory() {
     struct nlattr *tb[QCA_WLAN_VENDOR_ATTR_RADAR_HISTORY_MAX + 1];
     struct nlattr *attr;
     static struct nla_policy
-      policy[QCA_WLAN_VENDOR_ATTR_RADAR_HISTORY_MAX + 1] = {
-            [QCA_WLAN_VENDOR_ATTR_RADAR_HISTORY_FREQ] = { .type = NLA_U32 },
-            [QCA_WLAN_VENDOR_ATTR_RADAR_HISTORY_TIMESTAMP] = { .type = NLA_U64 },
-            [QCA_WLAN_VENDOR_ATTR_RADAR_HISTORY_DETECTED] = { .type = NLA_FLAG },
-    };
+      policy[QCA_WLAN_VENDOR_ATTR_RADAR_HISTORY_MAX + 1];
+    policy[QCA_WLAN_VENDOR_ATTR_RADAR_HISTORY_FREQ].type = NLA_U32;
+    policy[QCA_WLAN_VENDOR_ATTR_RADAR_HISTORY_TIMESTAMP].type = NLA_U64;
+    policy[QCA_WLAN_VENDOR_ATTR_RADAR_HISTORY_DETECTED].type = NLA_FLAG;
     radar_history_result *newEntry;
     radar_history_result *temp;
     u32 totalEntrySize = 0;
