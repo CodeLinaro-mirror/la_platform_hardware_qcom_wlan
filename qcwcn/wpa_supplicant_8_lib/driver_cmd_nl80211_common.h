@@ -52,8 +52,9 @@
 #define OBSS_PD_THRESHOLD_MIN -82
 #define OBSS_PD_THRESHOLD_MAX -62
 
-struct wpa_driver_nl80211_data *drv;
-struct i802_bss *bss;
+struct wpa_driver_nl80211_data;
+struct i802_bss;
+
 struct nl_msg *prepare_vendor_nlmsg(struct wpa_driver_nl80211_data *drv,
 		                    char *ifname, int subcmd);
 
