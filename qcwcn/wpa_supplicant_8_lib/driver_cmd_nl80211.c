@@ -72,6 +72,21 @@ static char *get_next_arg(char *cmd)
 	return pos;
 }
 
+static u8 get_u8_from_string(char *cmd_string, int *ret)
+{
+	u8 val = 0;
+
+	*ret = 0;
+	errno = 0;
+	val = strtol(cmd_string, NULL, 10) & 0xFF;
+	if (errno == ERANGE || (errno != 0 && val == 0)) {
+		wpa_printf(MSG_ERROR, "invalid value");
+		*ret = -EINVAL;
+	}
+
+	return val;
+}
+
 static int wpa_driver_cmd_set_ani_level(struct i802_bss *bss, int mode, int ofdmlvl)
 {
 	struct wpa_driver_nl80211_data *drv = bss->drv;
@@ -2339,6 +2354,59 @@ static int wpa_driver_restart_csi(struct i802_bss *bss, int *status)
 	return WPA_DRIVER_OEM_STATUS_SUCCESS;
 }
 
+static int wpa_driver_set_ul_mu_cfg(struct i802_bss *bss, char *cmd)
+{
+	struct wpa_driver_nl80211_data *drv = bss->drv;
+	struct nlattr *attr;
+	struct nl_msg *nlmsg = NULL;
+	int ret = 0;
+	u8 ulmu;
+	enum qca_ul_mu_config val;
+
+	ulmu = get_u8_from_string(cmd, &ret);
+	if (ret || ulmu > 1) {
+		wpa_printf(MSG_ERROR, "set_ul_mu_cfg: input error");
+		return -EINVAL;
+	}
+
+	if (ulmu)
+		val = QCA_UL_MU_ENABLE;
+	else
+		val = QCA_UL_MU_SUSPEND;
+
+	nlmsg =
+	prepare_vendor_nlmsg(drv, bss->ifname,
+			     QCA_NL80211_VENDOR_SUBCMD_SET_WIFI_CONFIGURATION);
+	if (!nlmsg) {
+		wpa_printf(MSG_ERROR, "set_ul_mu_cfg: Failed to alloc nl msg");
+		return -ENOMEM;
+	}
+
+	attr = nla_nest_start(nlmsg, NL80211_ATTR_VENDOR_DATA);
+	if (!attr) {
+		wpa_printf(MSG_ERROR, "set_ul_mu_config: Failed to alloc attr");
+		ret = -ENOMEM;
+		goto fail;
+	}
+
+	ret = nla_put_u8(nlmsg, QCA_WLAN_VENDOR_ATTR_CONFIG_UL_MU_CONFIG, val);
+	if (ret) {
+		wpa_printf(MSG_ERROR, "set_ul_mu_cfg:Fail to put ulmu");
+		goto fail;
+	}
+
+	nla_nest_end(nlmsg, attr);
+
+	ret = send_nlmsg((struct nl_sock *)drv->global->nl, nlmsg, NULL, NULL);
+	if (ret)
+		wpa_printf(MSG_ERROR, "set_ul_mu_cfg: Error sending nlmsg");
+
+	return ret;
+fail:
+	nlmsg_free(nlmsg);
+	return ret;
+}
+
 int wpa_driver_nl80211_driver_cmd(void *priv, char *cmd, char *buf,
 				  size_t buf_len )
 {
@@ -2598,6 +2666,13 @@ int wpa_driver_nl80211_driver_cmd(void *priv, char *cmd, char *buf,
 		}
 
 		return WPA_DRIVER_OEM_STATUS_SUCCESS;
+	} else if (os_strncasecmp(cmd, "SET_UL_MU_CONFIG ", 17) == 0) {
+		/* Usage: DRIVER SET_UL_MU_CONFIG <value>
+		 * value 0 - All UL_MU transmission are suspended by STA
+		 * value 1 - All UL_MU transmission are enabled by STA
+		 */
+		cmd += 17;
+		return wpa_driver_set_ul_mu_cfg(bss, cmd);
 	} else { /* Use private command */
 		memset(&ifr, 0, sizeof(ifr));
 		memset(&priv_cmd, 0, sizeof(priv_cmd));
