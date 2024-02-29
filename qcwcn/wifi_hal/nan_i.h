@@ -193,6 +193,9 @@ typedef enum
     NAN_MSG_ID_IDENTITY_RESOLUTION_IND      = 38,
     NAN_MSG_ID_PAIRING_IND                  = 39,
     NAN_MSG_ID_UNPAIRING_IND                = 40,
+    NAN_MSG_ID_OEM_REQ                      = 41,
+    NAN_MSG_ID_OEM_RSP                      = 42,
+    NAN_MSG_ID_OEM_IND                      = 43,
     NAN_MSG_ID_TESTMODE_REQ                 = 1025,
     NAN_MSG_ID_TESTMODE_RSP                 = 1026
 } NanMsgId;
@@ -344,6 +347,11 @@ typedef enum
     NAN_TLV_TYPE_SEC_BIGTK_KDE,
     NAN_TLV_TYPE_SEC_NM_TK,
     NAN_TLV_TYPE_SEC_LAST = 37100,
+
+    /* NAN OEM Configuration types */
+    NAN_TLV_TYPE_OEM_DATA_FIRST = 37101,
+    NAN_TLV_TYPE_OEM1_DATA = NAN_TLV_TYPE_OEM_DATA_FIRST,
+    NAN_TLV_TYPE_OEM_DATA_LAST  = 37150,
 
     NAN_TLV_TYPE_LAST = 65535
 } NanTlvType;
@@ -779,6 +787,25 @@ enum nan_attr_id {
 #define NAN_IGTK_KEY_IDX                   4
 #define NAN_BIGTK_KEY_IDX                  6
 
+/* sub attribute iteration helpers */
+#define for_each_nan_subattr(_subattr, _data, _datalen)                    \
+        for (_subattr = (const nan_subattr *) (_data);                  \
+             (const u8 *) (_data) + (_datalen) - (const u8 *) _subattr >=  \
+                (int) sizeof(*_subattr) &&                                 \
+             (const u8 *) (_data) + (_datalen) - (const u8 *) _subattr >=  \
+                (int) sizeof(*_subattr) + _subattr->datalen;                  \
+             _subattr = (const nan_subattr *) (_subattr->data + _subattr->datalen))
+
+#define for_each_nan_subattr_id(subattr, _id, data, datalen)            \
+        for_each_nan_subattr(subattr, data, datalen)                    \
+                if (subattr->id == (_id))
+
+typedef struct PACKED {
+         u8 id;
+         u16 datalen;
+         u8 data[];
+} nan_subattr;
+
 typedef struct PACKED {
         u8 attr_id;
         u16 len;
@@ -1198,6 +1225,7 @@ typedef enum {
     NAN_INDICATION_RANGING_REQUEST_RECEIVED =11,
     NAN_INDICATION_RANGING_RESULT           =12,
     NAN_INDICATION_IDENTITY_RESOLUTION      =13,
+    NAN_INDICATION_VENDOR_EVENT             =14,
     NAN_INDICATION_UNKNOWN                 =0xFFFF
 } NanIndicationType;
 
@@ -1546,6 +1574,13 @@ typedef struct PACKED
 #define NIR_STR_LEN 3
 #define NAN_MAX_HASH_LEN 32
 
+static inline int is_zero_nan_identity_key(const u8 *buf)
+{
+    u8 zero[NAN_IDENTITY_KEY_LEN] = { 0 };
+
+    return !memcmp(zero, buf, NAN_IDENTITY_KEY_LEN);
+}
+
 typedef struct PACKED {
     u32 cipher_version;
     u32 nonce_len;
@@ -1766,6 +1801,40 @@ struct wpa_secure_nan {
     struct wpabuf *rsnxe;
 };
 
+/***************************************************
+ * Wi-Fi HAL and Firmware interface for oem data
+ ***************************************************/
+
+#define NAN_OEM1_DATA_MAX_LEN  1024
+
+/* NAN Command request */
+typedef struct PACKED
+{
+    NanMsgHeader fwHeader;
+    /* TLVs Required:
+       MANDATORY
+       1. command in byte format
+    */
+    u8 ptlv[];
+} NanFWOemReqMsg, *pNanFWOemReqMsg;
+
+/* NAN Command Rsp */
+typedef struct PACKED
+{
+    NanMsgHeader fwHeader;
+    u16 status;
+    u16 value;
+    u8 ptlv[];
+} NanFWOemRspMsg, *pNanFWOemRspMsg;
+
+/* NAN Event Ind */
+typedef struct PACKED
+{
+    NanMsgHeader fwHeader;
+    u16 reserved[2];
+    u8 ptlv[];
+} NanFWOemIndMsg, *pNanFWOemIndMsg;
+
 /* Function for NAN error translation
    For NanResponse, NanPublishTerminatedInd, NanSubscribeTerminatedInd,
    NanDisabledInd, NanTransmitFollowupInd:
@@ -1779,8 +1848,9 @@ void NanErrorTranslation(NanInternalStatusType firmwareErrorRecvd,
 
 /* nan pairing internal function prototypes */
 int secure_nan_init(wifi_interface_handle iface);
+int secure_nan_cache_flush(hal_info *info);
 int secure_nan_deinit(hal_info *info);
-void nan_pairing_set_nik_nira(struct wpa_secure_nan *secure_nan);
+void nan_pairing_set_nira(struct wpa_secure_nan *secure_nan);
 unsigned int nan_pairing_get_nik_lifetime(struct nanIDkey *nik);
 struct rsn_pmksa_cache *nan_pairing_initiator_pmksa_cache_init(void);
 void nan_pairing_initiator_pmksa_cache_deinit(struct rsn_pmksa_cache *pmksa);
@@ -1798,6 +1868,7 @@ nan_pairing_get_peer_from_bootstrapping_id(struct wpa_secure_nan *secure_nan,
 struct nan_pairing_peer_info*
 nan_pairing_get_peer_from_ndp_id(struct wpa_secure_nan *secure_nan,
                                  u32 ndp_instance_id);
+void nan_pairing_remove_peers_with_nik(hal_info *info, u8 *nik, u8 *skip_mac);
 void nan_pairing_delete_list(struct wpa_secure_nan *secure_nan);
 void nan_pairing_delete_peer_from_list(struct wpa_secure_nan *secure_nan,
                                        u8 *mac);
@@ -1839,11 +1910,23 @@ wifi_error nan_validate_shared_key_desc(hal_info *info, const u8 *addr, u8 *buf,
                                         u16 len);
 wifi_error nan_get_shared_key_descriptor(hal_info *info, const u8 *addr,
                                          NanSharedKeyRequest *key);
+int nan_pairing_initiator_pmksa_cache_add(struct rsn_pmksa_cache *pmksa,
+                                          u8 *bssid, u8 *pmk, u32 pmk_len);
 int nan_pairing_initiator_pmksa_cache_get(struct rsn_pmksa_cache *pmksa,
                                           u8 *bssid, u8 *pmkid);
+void nan_pairing_initiator_pmksa_cache_flush(struct rsn_pmksa_cache *pmksa);
+int nan_pairing_responder_pmksa_cache_add(struct rsn_pmksa_cache *pmksa,
+                                          u8 *own_addr, u8 *bssid, u8 *pmk,
+                                          u32 pmk_len);
 int nan_pairing_responder_pmksa_cache_get(struct rsn_pmksa_cache *pmksa,
                                           u8 *bssid, u8 *pmkid);
+void nan_pairing_responder_pmksa_cache_flush(struct rsn_pmksa_cache *pmksa);
 void nan_pairing_derive_grp_keys(hal_info *info, u8* addr, u32 cipher_caps);
+bool is_nira_present(struct wpa_secure_nan *secure_nan, const u8 *frame,
+                     size_t len);
+struct nan_pairing_peer_info*
+nan_pairing_initialize_peer_for_verification(struct wpa_secure_nan *secure_nan,
+                                             u8 *mac);
 
 #ifdef __cplusplus
 }
