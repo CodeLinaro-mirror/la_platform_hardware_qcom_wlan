@@ -41,3 +41,15 @@ SUCH DAMAGE.
  *
  * Alternatively, this software may be distributed under the terms of BSD
  * license.
+
+_______________________________________________________________
+qca-vendor_copy.h:
+/*
+ * Qualcomm Atheros OUI and vendor specific assignments
+ * Copyright (c) 2014-2017, Qualcomm Atheros, Inc.
+ * Copyright (c) 2018-2020, The Linux Foundation
+ * Copyright (c) 2021-2023, Qualcomm Innovation Center, Inc.
+ *
+ * This software may be distributed under the terms of the BSD license.
+ * See README for more details.
+ */
