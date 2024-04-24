@@ -37,8 +37,6 @@
 #include <stdlib.h>
 #include <climits>
 
-#include <cutils/memory.h>
-
 #include "sync.h"
 #include "wifi_hal.h"
 #include "common.h"

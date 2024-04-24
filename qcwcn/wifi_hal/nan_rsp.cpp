@@ -48,8 +48,6 @@
  * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include <cutils/memory.h>
-
 #include "sync.h"
 #include <utils/Log.h>
 #include "wifi_hal.h"
