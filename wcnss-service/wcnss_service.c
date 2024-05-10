@@ -1,5 +1,6 @@
 /*--------------------------------------------------------------------------
 Copyright (c) 2013, The Linux Foundation. All rights reserved.
+Copyright (c) 2024 Qualcomm Innovation Center, Inc. All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are met:
@@ -72,7 +73,6 @@ ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #define WLAN_INI_FILE_SOURCE "/vendor/etc/wifi/WCNSS_qcom_cfg.ini"
 #define WCNSS_HAS_CAL_DATA\
 		"/sys/module/wcnsscore/parameters/has_calibrated_data"
-#define WLAN_DRIVER_ATH_DEFAULT_VAL "0"
 
 #define ASCII_A		65
 #define ASCII_a		97
@@ -355,15 +355,12 @@ void setup_wlan_config_file()
 			ALOGE("Failed to get group wifi %s", strerror(errno));
 	}
 
-	property_set("vendor.wlan.driver.config", WLAN_INI_FILE_DEST);
-
 out:
 	close(rfd);
 	close(wfd);
 	return;
 
 out_nocopy:
-	property_set("vendor.wlan.driver.config", WLAN_INI_FILE_DEST);
 	return;
 }
 unsigned int convert_string_to_hex(char* string)
@@ -491,11 +488,6 @@ fail:
 	*cal = FAILED;
 	close(fd);
 	return;
-}
-
-void setup_wlan_driver_ath_prop()
-{
-	property_set("vendor.wlan.driver.ath", WLAN_DRIVER_ATH_DEFAULT_VAL);
 }
 
 #ifdef WCNSS_QMI
@@ -799,8 +791,6 @@ nomodem:
 		else
 			ALOGE("Cal data is successfully written to WCNSS");
 	}
-
-	setup_wlan_driver_ath_prop();
 
 	rc = wcnss_read_and_store_cal_data(fd_dev);
 	if (rc != SUCCESS)
