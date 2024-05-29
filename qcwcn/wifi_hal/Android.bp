@@ -44,6 +44,7 @@ soong_config_module_type {
     bool_variables: [
         "target_uses_aosp_for_wlan", // TARGET_USES_AOSP_FOR_WLAN
         "target_supports_wearables", // TARGET_SUPPORTS_WEARABLES
+        "target_uses_less_than_V",
     ],
     value_variables: [
         "driver_state_ctrl_param", // WIFI_DRIVER_STATE_CTRL_PARAM
@@ -52,6 +53,7 @@ soong_config_module_type {
     properties: [
         "cflags",
         "cppflags",
+        "header_libs",
     ],
 }
 
@@ -68,6 +70,26 @@ wifi_hal_cc_defaults {
             conditions_default: {
                 cflags: ["-DWCNSS_QTI_AOSP"],
             },
+        },
+        target_uses_less_than_V: {
+           header_libs: [
+                "libcutils_headers",
+                "libutils_headers",
+                "libwifi-hal-ctrl_headers",
+                "libcld80211_headers",
+                "libnetlink_iface_headers",
+                "libhardware_legacy_headers",
+           ],
+           conditions_default: {
+           header_libs: [
+                "libcutils_headers",
+                "libutils_headers",
+                "libwifi-hal-ctrl_headers",
+                "libcld80211_headers",
+                "libnetlink_iface_headers",
+                "wifi_legacy_headers",
+           ],
+           },
         },
         target_supports_wearables: {
             conditions_default: {
@@ -96,14 +118,6 @@ cc_library {
             cflags: ["-DLOG_NDEBUG=0"],
         },
     },
-    header_libs: [
-        "libcutils_headers",
-        "libutils_headers",
-        "libwifi-hal-ctrl_headers",
-        "libcld80211_headers",
-        "libnetlink_iface_headers",
-        "libhardware_legacy_headers",
-    ],
     local_include_dirs: ["."],
     srcs: [
         "list.cpp",
