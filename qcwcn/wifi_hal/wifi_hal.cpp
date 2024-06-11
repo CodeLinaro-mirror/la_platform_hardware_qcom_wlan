@@ -64,8 +64,12 @@
 #include <netlink/object-api.h>
 #include <netlink/netlink.h>
 #include <netlink/socket.h>
+#if __has_include(<netlink-private/types.h>)
 #include <netlink-private/object-api.h>
 #include <netlink-private/types.h>
+#else
+#include <nl-priv-dynamic-core/nl-core.h>
+#endif /* has netlink-private */
 
 #include "nl80211_copy.h"
 
@@ -159,9 +163,9 @@ wifi_error wifi_get_supported_iface_concurrency_matrix(
 #ifdef WPA_PASN_LIB
 void wifihal_event_mgmt_tx_status(wifi_handle handle, struct nlattr *cookie,
                                   const u8 *frame, size_t len, struct nlattr *ack);
+#endif
 void wifihal_event_mgmt(wifi_handle handle, struct nlattr *freq, const u8 *frame,
                         size_t len);
-#endif
 /* Initialize/Cleanup */
 
 wifi_interface_handle wifi_get_iface_handle(wifi_handle handle, char *name)
@@ -915,7 +919,7 @@ wifi_error wifi_get_chip_capabilities(wifi_handle handle,
         return WIFI_ERROR_NOT_SUPPORTED;
     }
 
-    iface_handle = wifi_get_iface_handle(handle, "wlan0");
+    iface_handle = wifi_get_iface_handle(handle, (char*)"wlan0");
     if (!iface_handle) {
         ALOGE("%s no iface with wlan0", __func__);
         return WIFI_ERROR_UNKNOWN;
@@ -1169,6 +1173,7 @@ wifi_error init_wifi_vendor_hal_func_table(wifi_hal_fn *fn) {
     fn->wifi_nan_bootstrapping_request = nan_bootstrapping_request;
     fn->wifi_nan_bootstrapping_indication_response =
                                 nan_bootstrapping_indication_response;
+    fn->wifi_nan_pairing_end = nan_pairing_end;
     fn->wifi_get_chip_capabilities = wifi_get_chip_capabilities;
 
     return WIFI_SUCCESS;
@@ -2302,16 +2307,16 @@ static int internal_valid_message_handler(nl_msg *msg, void *arg)
         data = (const u8*) nla_data(frame);
         len = nla_len(frame);
 
-#ifdef WPA_PASN_LIB
         if (cmd == NL80211_CMD_FRAME) {
             wifihal_event_mgmt(handle, tb[NL80211_ATTR_WIPHY_FREQ],
                                (const u8*) nla_data(frame), nla_len(frame));
+#ifdef WPA_PASN_LIB
         } else {
             wifihal_event_mgmt_tx_status(handle, tb[NL80211_ATTR_COOKIE],
                                          (const u8*) nla_data(frame),
                                          nla_len(frame), tb[NL80211_ATTR_ACK]);
-        }
 #endif
+        }
     }
     else if((info->wifihal_ctrl_sock.s > 0) && (cmd == NL80211_CMD_FRAME))
     {
@@ -3752,7 +3757,7 @@ public:
                             iface_limits[0].iface_mask |= BIT(WIFI_INTERFACE_TYPE_NAN);
                             break;
                         default:
-                            ALOGI("Ignore unsupported iface type: %d", ift);
+                            ALOGD("Ignore unsupported iface type: %d", ift);
                             break;
                     }
                 }
@@ -3833,11 +3838,11 @@ public:
                                 iface_limits[j].iface_mask |= BIT(WIFI_INTERFACE_TYPE_NAN);
                                 break;
                             case NL80211_IFTYPE_P2P_DEVICE:
-                                ALOGI("Ignore p2p_device iface type");
+                                ALOGD("Ignore p2p_device iface type");
                                 iface_limits[j].max_limit--;
                                 break;
                             default:
-                                ALOGI("Ignore unsupported iface type: %d", ift);
+                                ALOGD("Ignore unsupported iface type: %d", ift);
                                 break;
                             }
                         }
@@ -3850,6 +3855,13 @@ public:
                         if (iface_limits[j].iface_mask)
                             j++;
                     }
+
+                    // Skip combinations with zero iface limits
+                    if (j == 0) {
+                        ALOGD("Ignore Zero iface limit combination");
+                        continue;
+                    }
+
                     iface_combination->num_iface_limits = j;
                     i++;
                     if (i == MAX_IFACE_COMBINATIONS) {
