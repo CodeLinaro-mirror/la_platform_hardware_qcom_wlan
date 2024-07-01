@@ -1542,6 +1542,15 @@ cleanup:
     return (wifi_error)ret;
 }
 
+static int wifi_get_wlan0_id(hal_info *info)
+{
+    int i;
+    for (i = 0; i < info->num_interfaces; i++)
+        if (!strncmp(info->interfaces[i]->name, "wlan0", 5))
+            return info->interfaces[i]->id;
+    return -1;
+}
+
 /**
  * Set STA + STA use case
  */
@@ -1550,6 +1559,7 @@ wifi_error wifi_multi_sta_set_use_case(wifi_handle handle,
 {
     int requestId, ret = 0;
     u8 use_case;
+    int index;
     WiFiConfigCommand *wifiConfigCommand;
     if (!handle) {
         ALOGE("%s: Error wifi_handle NULL", __FUNCTION__);
@@ -1599,8 +1609,14 @@ wifi_error wifi_multi_sta_set_use_case(wifi_handle handle,
     }
 
     /* Set the interface Id of the message. */
-    if (wifiConfigCommand->put_u32(NL80211_ATTR_IFINDEX,
-                                   info->interfaces[0]->id)) {
+    index = wifi_get_wlan0_id(info);
+    if (index == -1) {
+        ALOGE("%s: failed to obtain wlan0", __FUNCTION__);
+        ret = WIFI_ERROR_UNKNOWN;
+        goto cleanup;
+    }
+
+    if (wifiConfigCommand->put_u32(NL80211_ATTR_IFINDEX, index)) {
         ret = WIFI_ERROR_UNKNOWN;
         ALOGE("%s: Failed to put iface id", __FUNCTION__);
         goto cleanup;
@@ -1691,7 +1707,7 @@ cleanup:
     }
 
     if (wifiConfigCommand->put_u8(QCA_WLAN_VENDOR_ATTR_CONFIG_WFC_STATE,
-        (mode==WIFI_VOIP_MODE_ON) ? 1 : 0)) {
+        (mode==WIFI_VOIP_MODE_OFF) ? 0 : 1)) {
         ALOGE("%s: failed to put vendor data", __FUNCTION__);
         ret = WIFI_ERROR_UNKNOWN;
         goto cleanup;
