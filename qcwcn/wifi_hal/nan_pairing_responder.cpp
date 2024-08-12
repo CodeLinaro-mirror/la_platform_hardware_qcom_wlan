@@ -136,6 +136,7 @@ wifi_error nan_pairing_indication_response(transaction_id id,
     hal_info *info = getHalInfo(wifiHandle);
     const struct ieee80211_mgmt *mgmt = NULL;
     struct wpa_secure_nan *secure_nan;
+    bool reject = false;
     int ret;
 
     if (!info) {
@@ -182,12 +183,6 @@ wifi_error nan_pairing_indication_response(transaction_id id,
     pasn->derive_kdk = true;
     pasn->kdk_len = WPA_KDK_MAX_LEN;
     peer->peer_role = SECURE_NAN_PAIRING_INITIATOR;
-
-    if (msg->rsp_code == NAN_PAIRING_REQUEST_REJECT) {
-        ALOGE("%s: received reject rsp", __FUNCTION__);
-        peer->is_pairing_in_progress = false;
-        goto fail;
-    }
 
     mgmt = (struct ieee80211_mgmt *)peer->frame->data;
     memcpy(pasn->own_addr, nanCommand->getNmi(), NAN_MAC_ADDR_LEN);
@@ -278,13 +273,24 @@ wifi_error nan_pairing_indication_response(transaction_id id,
     if (secure_nan->rsnxe)
         pasn->rsnxe_ie = wpabuf_head_u8(secure_nan->rsnxe);
 
+    if (msg->rsp_code == NAN_PAIRING_REQUEST_REJECT)
+        reject = true;
+
     pasn->pmksa = secure_nan->responder_pmksa;
     peer->trans_id = id;
     peer->trans_id_valid = true;
     ret = handle_auth_pasn_1(pasn, pasn->own_addr, (u8 *)mgmt->sa, mgmt,
-                             peer->frame->len);
+                             peer->frame->len, reject);
     if (ret == -1) {
+        NanPairingConfirmInd evt;
+
         ALOGE("%s: Handle auth pasn 1 failed", __FUNCTION__);
+        memset(&evt, 0, sizeof(NanPairingConfirmInd));
+        evt.pairing_instance_id = peer->pairing_instance_id;
+        evt.rsp_code = NAN_PAIRING_REQUEST_REJECT;
+        evt.reason_code =  NAN_STATUS_INTERNAL_FAILURE;
+        nanCommand->handleNanPairingConfirm(&evt);
+        peer->is_pairing_in_progress = false;
         wpa_pasn_reset(pasn);
         peer->peer_role = SECURE_NAN_IDLE;
         goto fail;
