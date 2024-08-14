@@ -11,10 +11,10 @@ soong_config_module_type {
 wifihal_qcom_defaults {
     name: "libwifi-hal-qcom",
     whole_static_libs: [
-        "//hardware/qcom/wlan/qcwcn/wifi_hal:libwifi-hal-qcom",
+        "//hardware/qcom/monaco/wlan/qcwcn/wifi_hal:libwifi-hal-qcom",
     ],
     shared_libs: [
-        "//hardware/qcom/wlan/cld80211-lib:libcld80211",
+        "//hardware/qcom/monaco/wlan/cld80211-lib:libcld80211",
         "libcrypto",
     ],
 }
