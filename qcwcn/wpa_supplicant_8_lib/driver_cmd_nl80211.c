@@ -6324,8 +6324,7 @@ static int wpa_driver_cfg_listen_interval_cmd(struct i802_bss *bss, char *cmd)
 	listen_interval = get_u32_from_string(cmd, &ret);
 	if (ret < 0)
 		return ret;
-	if (listen_interval < CONFIG_LISTEN_INTERVAL_MIN ||
-			listen_interval > CONFIG_LISTEN_INTERVAL_MAX) {
+	if (listen_interval > CONFIG_LISTEN_INTERVAL_MAX) {
 		wpa_printf(MSG_ERROR, "listen interval values to be in range of %d-%d",
 			CONFIG_LISTEN_INTERVAL_MIN, CONFIG_LISTEN_INTERVAL_MAX);
 		return -EINVAL;
