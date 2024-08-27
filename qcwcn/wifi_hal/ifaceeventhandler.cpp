@@ -35,7 +35,7 @@
 
 #include "sync.h"
 #define LOG_TAG  "WifiHAL"
-#include <utils/Log.h>
+#include <rpc/util/log_common.h>
 #include <time.h>
 #include <errno.h>
 

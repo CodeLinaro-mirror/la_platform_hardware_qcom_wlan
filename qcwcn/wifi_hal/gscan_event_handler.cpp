@@ -16,7 +16,7 @@
 
 #define LOG_TAG  "WifiHAL"
 
-#include <utils/Log.h>
+#include <rpc/util/log_common.h>
 #include "gscan_event_handler.h"
 
 /* This function implements creation of Vendor command event handler. */

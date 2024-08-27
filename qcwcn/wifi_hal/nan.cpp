@@ -54,7 +54,7 @@
 #include "nan_i.h"
 #include "common.h"
 #include "cpp_bindings.h"
-#include <utils/Log.h>
+#include <rpc/util/log_common.h>
 #include <errno.h>
 #include "nancommand.h"
 #include "vendor_definitions.h"

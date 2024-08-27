@@ -37,7 +37,7 @@
 //#include <cutils/sched_policy.h>
 #include <unistd.h>
 
-#include <utils/Log.h>
+#include <rpc/util/log_common.h>
 #include <time.h>
 
 #include "common.h"

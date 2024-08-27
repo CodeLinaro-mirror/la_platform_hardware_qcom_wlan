@@ -38,7 +38,8 @@ CXXOBJECTS := $(CXXSRCS:.cpp=.o)
 CFLAGS += -c -fPIC
 CXXFLAGS += -c -fPIC
 CPPFLAGS += -Iwifi_hal_ctrl
-LDFLAGS += -lcutils -llog -ldl -lcld80211 -lcrypto -lnl-3
+CPPFLAGS += -DENABLE_LOG
+LDFLAGS += -lcutils -lqti_log_util -ldl -lcld80211 -lcrypto -lnl-3
 LDFLAGS += -shared -Wl,-soname,$(LIBNAME)
 
 $(LIBNAME): $(COBJECTS) $(CXXOBJECTS)

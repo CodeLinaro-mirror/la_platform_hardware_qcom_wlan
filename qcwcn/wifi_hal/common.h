@@ -77,7 +77,7 @@
 
 #include "nl80211_copy.h"
 
-#include <utils/Log.h>
+#include <rpc/util/log_common.h>
 #include "rb_wrapper.h"
 #include "pkt_stats.h"
 #include "wifihal_internal.h"

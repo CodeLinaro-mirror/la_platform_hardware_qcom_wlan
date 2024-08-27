@@ -35,7 +35,7 @@
 
 #define LOG_TAG  "WifiHAL"
 
-#include <utils/Log.h>
+#include <rpc/util/log_common.h>
 
 #include "wifi_hal.h"
 #include "common.h"

@@ -33,7 +33,7 @@
 
 #include "sync.h"
 #define LOG_TAG  "WifiHAL"
-#include <utils/Log.h>
+#include <rpc/util/log_common.h>
 #include <time.h>
 #include <errno.h>
 #include <stdlib.h>
@@ -1473,6 +1473,8 @@ cleanup:
 wifi_error wifi_multi_sta_set_primary_connection(wifi_handle handle,
                                  wifi_interface_handle iface)
 {
+    ALOGE("[TEST] %s: Enter", __FUNCTION__);
+
     int requestId, ret = 0;
     WiFiConfigCommand *wifiConfigCommand;
     if (!handle) {
@@ -1504,6 +1506,7 @@ wifi_error wifi_multi_sta_set_primary_connection(wifi_handle handle,
     }
 
     /* Set the interface Id of the message. */
+    ALOGE("[TEST] Setting interface name: %s", ifaceInfo->name);
     ret = wifiConfigCommand->set_iface_id(ifaceInfo->name);
     if (ret < 0) {
         ALOGE("%s: failed to set iface id. Error:%d",
@@ -1528,6 +1531,7 @@ wifi_error wifi_multi_sta_set_primary_connection(wifi_handle handle,
         goto cleanup;
     }
     wifiConfigCommand->attr_end(nlData);
+    ALOGE("[TEST] Formatted nl attr with QCA_WLAN_VENDOR_ATTR_CONFIG_CONCURRENT_STA_PRIMARY");
 
     /* Send the NL msg. */
     wifiConfigCommand->waitForRsp(false);

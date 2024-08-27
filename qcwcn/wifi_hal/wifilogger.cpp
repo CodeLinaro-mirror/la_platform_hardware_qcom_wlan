@@ -66,7 +66,7 @@
 #include "common.h"
 #include "cpp_bindings.h"
 #include <errno.h>
-#include <utils/Log.h>
+#include <rpc/util/log_common.h>
 #include "wifiloggercmd.h"
 #include "rb_wrapper.h"
 #include <stdlib.h>
