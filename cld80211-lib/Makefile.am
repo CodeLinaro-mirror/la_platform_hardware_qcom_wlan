@@ -12,6 +12,8 @@ endif
 AM_CFLAGS += -Wno-unused-parameter -Wno-int-to-pointer-cast \
              -Wno-maybe-uninitialized -Wno-parentheses -DLE_BUILD \
              -D_GNU_SOURCE=1
+AM_CFLAGS += -DENABLE_LOG
+AM_LDFLAGS = -lqti_log_util
 
 h_sources = cld80211_lib.h
 library_includedir = $(pkgincludedir)

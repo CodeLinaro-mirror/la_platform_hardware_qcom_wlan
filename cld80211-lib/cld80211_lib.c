@@ -43,19 +43,23 @@
 #include <unistd.h>
 #include "cld80211_lib.h"
 
-#ifndef LE_BUILD
- #include <log/log.h>
- #undef LOG_TAG
- #define LOG_TAG "CLD80211"
-#else
- #include <stdlib.h>
- #include <syslog.h>
- #include <unistd.h>
- #define ALOGI(fmt, args...) syslog(LOG_INFO, fmt, ## args)
- #define ALOGE(fmt, args...) syslog(LOG_ERR, fmt, ## args)
- extern const char *__progname;
- const char *getprogname() { return (__progname); }
-#endif
+//#ifndef LE_BUILD
+// #include <log/log.h>
+// #undef LOG_TAG
+// #define LOG_TAG "CLD80211"
+//#else
+// #include <stdlib.h>
+// #include <syslog.h>
+// #include <unistd.h>
+// #define ALOGI(fmt, args...) syslog(LOG_INFO, fmt, ## args)
+// #define ALOGE(fmt, args...) syslog(LOG_ERR, fmt, ## args)
+// extern const char *__progname;
+// const char *getprogname() { return (__progname); }
+//#endif
+
+#include <rpc/util/log_common.h>
+extern const char *__progname;
+const char *getprogname() { return (__progname); }
 
 #define SOCK_BUF_SIZE (256*1024)
 
