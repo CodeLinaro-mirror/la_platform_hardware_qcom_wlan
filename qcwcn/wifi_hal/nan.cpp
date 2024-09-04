@@ -114,6 +114,7 @@ wifi_error nan_enable_request(transaction_id id,
     interface_info *ifaceInfo = getIfaceInfo(iface);
     wifi_handle wifiHandle = getWifiHandle(iface);
     hal_info *info = getHalInfo(wifiHandle);
+    u8 followup_rx_support = 0;
 
     if (info == NULL) {
         ALOGE("%s: Error hal_info NULL", __FUNCTION__);
@@ -140,7 +141,12 @@ wifi_error nan_enable_request(transaction_id id,
     if (ret != WIFI_SUCCESS)
         goto cleanup;
 
-    ret = nanCommand->putNanEnable(id, msg);
+    t_nanCommand = NanCommand::instance(wifiHandle);
+    if (t_nanCommand != NULL) {
+        followup_rx_support = t_nanCommand->getFollowupRxSupport();
+    }
+
+    ret = nanCommand->putNanEnable(id, msg, followup_rx_support);
     if (ret != WIFI_SUCCESS) {
         ALOGE("%s: putNanEnable Error:%d", __FUNCTION__, ret);
         goto cleanup;
@@ -151,9 +157,9 @@ wifi_error nan_enable_request(transaction_id id,
         ALOGE("%s: requestEvent Error:%d", __FUNCTION__, ret);
 
     if (ret == WIFI_SUCCESS) {
-        t_nanCommand = NanCommand::instance(wifiHandle);
         if (t_nanCommand != NULL) {
             t_nanCommand->allocSvcParams();
+            t_nanCommand->setNanEnabled();
         }
     }
 
@@ -212,6 +218,7 @@ wifi_error nan_disable_request(transaction_id id,
         t_nanCommand = NanCommand::instance(wifiHandle);
         if (t_nanCommand != NULL) {
             t_nanCommand->deallocSvcParams();
+            t_nanCommand->setNanDisabled();
         }
         secure_nan_cache_flush(info);
     }
@@ -2014,6 +2021,8 @@ NanCommand::NanCommand(wifi_handle handle, int id, u32 vendor_id, u32 subcmd)
     mNanMaxPublishes = 0;
     mNanMaxSubscribes = 0;
     mConfigDiscoveryIndications = 0;
+    mNanFollowupRxSupport = 0;
+    mNanEnabled = false;
 }
 
 void NanCommand::setNanVendorEventAndDataLen(char *event, int len) {
@@ -2097,6 +2106,30 @@ u8 *NanCommand::getNmi()
 u8 *NanCommand::getClusterAddr()
 {
     return mClusterAddr;
+}
+
+/* Get NAN Followup Rx support */
+u8 NanCommand::getFollowupRxSupport()
+{
+    return mNanFollowupRxSupport;
+}
+
+/* Set NAN Enabled */
+void NanCommand::setNanEnabled()
+{
+    mNanEnabled = true;
+}
+
+/* Set NAN Disabled */
+void NanCommand::setNanDisabled()
+{
+    mNanEnabled = false;
+}
+
+/* is NAN Enabled */
+bool NanCommand::isNanEnabled()
+{
+    return mNanEnabled;
 }
 
 /*
@@ -2245,6 +2278,9 @@ u16 NanCommand::getPubSubId(u32 instance_id, NanRole pool)
 u32 NanCommand::getNanMatchHandle(u16 requestor_id, u8 *service_id)
 {
     int i;
+
+    if (mStoreSubParams == NULL)
+        return 0;
 
     for (i = 0; i < mNanMaxSubscribes; i++) {
         if (mStoreSubParams[i].subscriber_publisher_id == requestor_id &&
