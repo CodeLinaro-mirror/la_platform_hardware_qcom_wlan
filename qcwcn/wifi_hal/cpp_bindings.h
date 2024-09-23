@@ -509,3 +509,5 @@ wifi_error initialize_vendor_cmd(wifi_interface_handle iface,
                                  u32 subcmd,
                                  WifiVendorCommand **vCommand);
 #endif
+
+char *hangReasonToString(uint32_t hang_reason);
