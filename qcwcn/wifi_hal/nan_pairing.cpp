@@ -776,6 +776,14 @@ void nan_rx_mgmt_auth(wifi_handle handle, const u8 *frame, size_t len)
                nan_dcea *dcea = (nan_dcea *)nan_attr_ie;
                peer->dcea_cap_info = dcea->cap_info;
             }
+
+            nan_attr_ie = nan_get_attr_from_ies(mgmt->u.auth.variable,
+                             len - offsetof(struct ieee80211_mgmt, u.auth.variable),
+                             NAN_ATTR_ID_CSIA);
+            if (nan_attr_ie) {
+                nan_csia *csia = (nan_csia *)nan_attr_ie;
+                peer->csia_cap_info = csia->caps;
+            }
             ptksa_cache_add(info->secure_nan->ptksa, pasn->own_addr,
                             pasn->peer_addr, pasn->cipher, nanPMKLifetime,
                             &pasn->ptk, NULL, NULL, pasn->akmp);
@@ -1424,9 +1432,17 @@ wifi_error nan_get_shared_key_descriptor(hal_info *info, const u8 *addr,
     struct nanIDkey *nik;
     struct ptksa_cache_entry *entry;
     struct wpa_secure_nan *secure_nan;
+    struct nan_pairing_peer_info *peer;
+    int groupMfp;
 
     if (!info || !info->secure_nan || !info->secure_nan->dev_nik) {
         ALOGE("%s: secure nan NULL", __FUNCTION__);
+        return WIFI_ERROR_UNKNOWN;
+    }
+
+    peer = nan_pairing_get_peer_from_list(info->secure_nan, (u8 *)addr);
+    if (!peer) {
+        ALOGE("nl80211: Peer not found in the pairing list");
         return WIFI_ERROR_UNKNOWN;
     }
 
@@ -1503,8 +1519,13 @@ wifi_error nan_get_shared_key_descriptor(hal_info *info, const u8 *addr,
     nik_lifetime_kde->lifetime = nan_pairing_get_nik_lifetime(nik);
     pos += sizeof(struct nikLifetime);
 
+
+    groupMfp = NAN_CSIA_GRPKEY_SUPPORT_GET(peer->csia_cap_info);
+    ALOGI("%s: CSIA capabilities %d", __FUNCTION__, peer->csia_cap_info);
 /* IGTK */
-    if (grp_keys && grp_keys->igtk_len) {
+    if (grp_keys && grp_keys->igtk_len &&
+        (groupMfp == NAN_GTKSA_IGTKSA_BIGTKSA_SUPPORTED ||
+         groupMfp == NAN_GTKSA_IGTKSA_SUPPORTED_BIGTKSA_NOT_SUPPORTED)) {
         nan_kde = (struct nanKDE *)pos;
         nan_kde->type = NAN_VENDOR_ATTR_TYPE;
         nan_kde->length = oui_offset + sizeof(struct igtkKDE) +
@@ -1533,7 +1554,8 @@ wifi_error nan_get_shared_key_descriptor(hal_info *info, const u8 *addr,
 /* IGTK end */
 
 /* BIGTK */
-    if (grp_keys && grp_keys->bigtk_len) {
+    if (grp_keys && grp_keys->bigtk_len &&
+        groupMfp == NAN_GTKSA_IGTKSA_BIGTKSA_SUPPORTED) {
         nan_kde = (struct nanKDE *)pos;
         nan_kde->type = NAN_VENDOR_ATTR_TYPE;
         nan_kde->length = oui_offset + sizeof(struct bigtkKDE) +
@@ -2361,7 +2383,7 @@ void nan_pairing_add_setup_ies(struct wpa_secure_nan *secure_nan,
     csia->attr_id = NAN_ATTR_ID_CSIA;
     csia->len = sizeof(nan_csia) - offsetof(nan_csia, caps);
     csia->len += sizeof(nan_csa);
-    csia->caps = 0;
+    csia->caps = secure_nan->csia_cap_info;
     csia->csa[0].cipher = NCS_PK_PASN_128;
     csia->csa[0].pub_id = secure_nan->pub_sub_id;
     if (peer_role == SECURE_NAN_PAIRING_INITIATOR) {
@@ -2441,7 +2463,7 @@ void nan_pairing_add_verification_ies(struct wpa_secure_nan *secure_nan,
     csia->attr_id = NAN_ATTR_ID_CSIA;
     csia->len = sizeof(nan_csia) - offsetof(nan_csia, caps);
     csia->len += sizeof(nan_csa);
-    csia->caps = 0;
+    csia->caps = secure_nan->csia_cap_info;
     csia->csa[0].cipher = NCS_PK_PASN_128;
     csia->csa[0].pub_id = secure_nan->pub_sub_id;
     if (peer_role == SECURE_NAN_PAIRING_INITIATOR) {
@@ -2621,7 +2643,7 @@ void nan_pairing_set_password(struct nan_pairing_peer_info *peer, u8 *passphrase
     peer->pasn.password = peer->passphrase;
 }
 
-void nan_pairing_derive_grp_keys(hal_info *info, u8* addr, u32 cipher_caps)
+void nan_pairing_derive_grp_keys(hal_info *info, u8* addr, u8 cipher_caps)
 {
     int groupMfp;
     int len = 0;
@@ -2649,6 +2671,7 @@ void nan_pairing_derive_grp_keys(hal_info *info, u8* addr, u32 cipher_caps)
     else
         len = NAN_CSIA_GRPKEY_LEN_16;
 
+    secure_nan->csia_cap_info = cipher_caps;
     groupMfp = NAN_CSIA_GRPKEY_SUPPORT_GET(cipher_caps);
 
     switch (groupMfp) {
