@@ -266,6 +266,8 @@ wifi_error nan_publish_request(transaction_id id,
         info->secure_nan->supported_bootstrap =
               msg->nan_pairing_config.supported_bootstrapping_methods;
 #ifdef WPA_PASN_LIB
+        if (!msg->cipher_capabilities && msg->nan_pairing_config.enable_pairing_setup)
+            msg->cipher_capabilities = 0x4;
         if (!info->secure_nan->dev_grp_keys)
             nan_pairing_derive_grp_keys(info, t_nanCommand->getNmi(),
                                         msg->cipher_capabilities);
@@ -400,6 +402,8 @@ wifi_error nan_subscribe_request(transaction_id id,
         info->secure_nan->supported_bootstrap =
               msg->nan_pairing_config.supported_bootstrapping_methods;
 #ifdef WPA_PASN_LIB
+        if (!msg->cipher_capabilities && msg->nan_pairing_config.enable_pairing_setup)
+            msg->cipher_capabilities = 0x4;
         if (!info->secure_nan->dev_grp_keys)
             nan_pairing_derive_grp_keys(info, t_nanCommand->getNmi(),
                                         msg->cipher_capabilities);
@@ -500,6 +504,56 @@ wifi_error nan_subscribe_cancel_request(transaction_id id,
                                           0, NAN_ROLE_SUBSCRIBER);
         }
     }
+
+cleanup:
+    delete nanCommand;
+    return ret;
+}
+
+/* Function to get packet number on multicast group keys from wlan firmware */
+wifi_error nan_group_key_pn_request(transaction_id id,
+                                    wifi_interface_handle iface,
+                                    u32 key_index)
+{
+    wifi_error ret;
+    NanCommand *nanCommand;
+    interface_info *ifaceInfo = getIfaceInfo(iface);
+    wifi_handle wifiHandle = getWifiHandle(iface);
+    hal_info *info = getHalInfo(wifiHandle);
+
+    if (info == NULL) {
+        ALOGE("%s: Error hal_info NULL", __FUNCTION__);
+        return WIFI_ERROR_UNKNOWN;
+    }
+
+    nanCommand = new NanCommand(wifiHandle,
+                                0,
+                                OUI_QCA,
+                                info->support_nan_ext_cmd?
+                                QCA_NL80211_VENDOR_SUBCMD_NAN_EXT :
+                                QCA_NL80211_VENDOR_SUBCMD_NAN);
+    if (nanCommand == NULL) {
+        ALOGE("%s: Error NanCommand NULL", __FUNCTION__);
+        return WIFI_ERROR_UNKNOWN;
+    }
+
+    ret = nanCommand->create();
+    if (ret != WIFI_SUCCESS)
+        goto cleanup;
+
+    ret = nanCommand->set_iface_id(ifaceInfo->name);
+    if (ret != WIFI_SUCCESS)
+        goto cleanup;
+
+    ret = nanCommand->putNanGroupKeyPnReq(id, key_index);
+    if (ret != WIFI_SUCCESS) {
+        ALOGE("%s: putNanGroupKeyPnReq Error:%d", __FUNCTION__, ret);
+        goto cleanup;
+    }
+
+    ret = nanCommand->requestEvent();
+    if (ret != WIFI_SUCCESS)
+        ALOGE("%s: requestEvent Error:%d", __FUNCTION__, ret);
 
 cleanup:
     delete nanCommand;
