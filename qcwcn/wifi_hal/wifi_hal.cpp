@@ -1054,6 +1054,19 @@ cleanup:
     return ret;
 }
 
+wifi_error wifi_set_subsystem_restart_handler(wifi_handle handle,
+                                              wifi_subsystem_restart_handler handler)
+{
+    if (handler.on_subsystem_restart == NULL) {
+        ALOGE("Subsystem restart handler is NULL");
+        return WIFI_ERROR_UNKNOWN;
+    }
+
+    hal_info *info = getHalInfo(handle);
+    info->on_subsystem_restart = handler.on_subsystem_restart;
+    return WIFI_SUCCESS;
+}
+
 /*initialize function pointer table with Qualcomm HAL API*/
 wifi_error init_wifi_vendor_hal_func_table(wifi_hal_fn *fn) {
     if (fn == NULL) {
@@ -1177,6 +1190,8 @@ wifi_error init_wifi_vendor_hal_func_table(wifi_hal_fn *fn) {
     fn->wifi_get_chip_capabilities = wifi_get_chip_capabilities;
 
     fn->wifi_set_scan_mode = wifi_set_scan_mode_config;
+    fn->wifi_set_subsystem_restart_handler = wifi_set_subsystem_restart_handler;
+
     return WIFI_SUCCESS;
 }
 
@@ -2276,6 +2291,26 @@ static int internal_valid_message_handler(nl_msg *msg, void *arg)
         if (subcmd != QCA_NL80211_VENDOR_SUBCMD_GSCAN_FULL_SCAN_RESULT) {
             ALOGI("event received %s, vendor_id = 0x%0x, subcmd = 0x%0x",
                   event.get_cmdString(), vendor_id, subcmd);
+        }
+        if (subcmd == QCA_NL80211_VENDOR_SUBCMD_HANG) {
+            void *data = NULL;
+            int len = 0;
+            struct nlattr *tb[QCA_WLAN_VENDOR_ATTR_HANG_MAX + 1];
+            uint32_t hang_reason = QCA_WLAN_HANG_REASON_UNSPECIFIED;
+
+            data = event.get_vendor_data();
+            len = event.get_vendor_data_len();
+            nla_parse(tb, QCA_WLAN_VENDOR_ATTR_HANG_MAX, (struct nlattr *)data, len, NULL);
+
+            if (tb[QCA_WLAN_VENDOR_ATTR_HANG_REASON]) {
+                hang_reason = nla_get_u32(tb[QCA_WLAN_VENDOR_ATTR_HANG_REASON]);
+            }
+
+            if(info -> on_subsystem_restart)
+                info -> on_subsystem_restart(hangReasonToString(hang_reason));
+            else {
+                ALOGI("No subsystem restart handler registered");
+            }
         }
     }
     else if(cmd == NL80211_CMD_FRAME ||

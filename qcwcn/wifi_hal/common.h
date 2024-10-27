@@ -232,6 +232,7 @@ typedef struct hal_info_s {
 #endif /* TARGET_SUPPORTS_WEARABLES */
     qca_wlan_vendor_sar_version sar_version;
     struct wpa_secure_nan *secure_nan;
+    void (*on_subsystem_restart)(const char* error);
 } hal_info;
 
 typedef struct {
