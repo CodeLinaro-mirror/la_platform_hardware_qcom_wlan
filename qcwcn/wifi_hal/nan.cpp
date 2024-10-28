@@ -506,6 +506,56 @@ cleanup:
     return ret;
 }
 
+/* Function to get packet number on multicast group keys from wlan firmware */
+wifi_error nan_group_key_pn_request(transaction_id id,
+                                    wifi_interface_handle iface,
+                                    u32 key_index)
+{
+    wifi_error ret;
+    NanCommand *nanCommand;
+    interface_info *ifaceInfo = getIfaceInfo(iface);
+    wifi_handle wifiHandle = getWifiHandle(iface);
+    hal_info *info = getHalInfo(wifiHandle);
+
+    if (info == NULL) {
+        ALOGE("%s: Error hal_info NULL", __FUNCTION__);
+        return WIFI_ERROR_UNKNOWN;
+    }
+
+    nanCommand = new NanCommand(wifiHandle,
+                                0,
+                                OUI_QCA,
+                                info->support_nan_ext_cmd?
+                                QCA_NL80211_VENDOR_SUBCMD_NAN_EXT :
+                                QCA_NL80211_VENDOR_SUBCMD_NAN);
+    if (nanCommand == NULL) {
+        ALOGE("%s: Error NanCommand NULL", __FUNCTION__);
+        return WIFI_ERROR_UNKNOWN;
+    }
+
+    ret = nanCommand->create();
+    if (ret != WIFI_SUCCESS)
+        goto cleanup;
+
+    ret = nanCommand->set_iface_id(ifaceInfo->name);
+    if (ret != WIFI_SUCCESS)
+        goto cleanup;
+
+    ret = nanCommand->putNanGroupKeyPnReq(id, key_index);
+    if (ret != WIFI_SUCCESS) {
+        ALOGE("%s: putNanGroupKeyPnReq Error:%d", __FUNCTION__, ret);
+        goto cleanup;
+    }
+
+    ret = nanCommand->requestEvent();
+    if (ret != WIFI_SUCCESS)
+        ALOGE("%s: requestEvent Error:%d", __FUNCTION__, ret);
+
+cleanup:
+    delete nanCommand;
+    return ret;
+}
+
 /*  Function to send NAN shared key descriptor request to the wifi driver.*/
 wifi_error nan_sharedkey_followup_request(transaction_id id,
                                      wifi_interface_handle iface,
@@ -575,7 +625,10 @@ wifi_error nan_bootstrapping_request(transaction_id id,
         ALOGE("%s: Error hal_info NULL", __FUNCTION__);
         return WIFI_ERROR_UNKNOWN;
     }
-
+    if (info->secure_nan == NULL) {
+        ALOGE("%s: Secure NAN not supported", __FUNCTION__);
+        return WIFI_ERROR_UNKNOWN;
+    }
     t_nanCommand = NanCommand::instance(wifiHandle);
     if (t_nanCommand == NULL) {
         ALOGE("%s: Error NanCommand NULL", __FUNCTION__);
@@ -664,7 +717,10 @@ wifi_error nan_bootstrapping_indication_response(transaction_id id,
         ALOGE("%s: Error hal_info NULL", __FUNCTION__);
         return WIFI_ERROR_UNKNOWN;
     }
-
+    if (info->secure_nan == NULL) {
+        ALOGE("%s: Secure NAN not supported", __FUNCTION__);
+        return WIFI_ERROR_UNKNOWN;
+    }
     t_nanCommand = NanCommand::instance(wifiHandle);
     if (t_nanCommand == NULL) {
         ALOGE("%s: Error NanCommand NULL", __FUNCTION__);
@@ -2142,7 +2198,7 @@ bool NanCommand::isNanEnabled()
  * pool - Subscriber/Publisher entry based on NAN/NDP Indication
  */
 void NanCommand::saveServiceId(u8 *service_id, u16 sub_pub_handle,
-                               u32 instance_id, NanRole pool)
+                               u32 instance_id, NanRole pool, const u8 *addr)
 {
     int i;
 
@@ -2168,6 +2224,8 @@ void NanCommand::saveServiceId(u8 *service_id, u16 sub_pub_handle,
             memcpy(mStorePubParams[i].service_id, service_id, NAN_SVC_ID_SIZE);
             mStorePubParams[i].subscriber_publisher_id = sub_pub_handle;
             mStorePubParams[i].instance_id = instance_id;
+            if (addr)
+                memcpy(mStorePubParams[i].peer_mac, addr, NAN_MAC_ADDR_LEN);
             ALOGV("Added new entry in Publisher pool at index=%d with "
                   "Publish ID=%d and Instance ID=%d", i,
                   mStorePubParams[i].subscriber_publisher_id,
@@ -2193,6 +2251,8 @@ void NanCommand::saveServiceId(u8 *service_id, u16 sub_pub_handle,
             memcpy(mStoreSubParams[i].service_id, service_id, NAN_SVC_ID_SIZE);
             mStoreSubParams[i].subscriber_publisher_id = sub_pub_handle;
             mStoreSubParams[i].instance_id = instance_id;
+            if (addr)
+                memcpy(mStoreSubParams[i].peer_mac, addr, NAN_MAC_ADDR_LEN);
             ALOGV("Added new entry in Subscriber pool at index=%d with "
                   "Subscribe ID=%d and Instance ID=%d", i,
                   mStoreSubParams[i].subscriber_publisher_id,
@@ -2275,7 +2335,8 @@ u16 NanCommand::getPubSubId(u32 instance_id, NanRole pool)
     return 0;
 }
 
-u32 NanCommand::getNanMatchHandle(u16 requestor_id, u8 *service_id)
+u32 NanCommand::getNanMatchHandle(u16 requestor_id, u8 *service_id,
+                                  const u8 *peer)
 {
     int i;
 
@@ -2285,7 +2346,8 @@ u32 NanCommand::getNanMatchHandle(u16 requestor_id, u8 *service_id)
     for (i = 0; i < mNanMaxSubscribes; i++) {
         if (mStoreSubParams[i].subscriber_publisher_id == requestor_id &&
             !memcmp(mStoreSubParams[i].service_id, service_id,
-             NAN_SD_ATTR_SERVICE_ID_LEN)) {
+             NAN_SD_ATTR_SERVICE_ID_LEN) &&
+            !memcmp(mStoreSubParams[i].peer_mac, peer, NAN_MAC_ADDR_LEN)) {
             return mStoreSubParams[i].instance_id;
         }
     }

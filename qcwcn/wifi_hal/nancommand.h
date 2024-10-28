@@ -90,6 +90,7 @@ typedef struct PACKED
     u32 instance_id;
     u16 subscriber_publisher_id;
     u8 service_id[NAN_SVC_ID_SIZE];
+    u8 peer_mac[NAN_MAC_ADDR_LEN];
 } NanStoreSvcParams;
 
 typedef enum
@@ -214,7 +215,7 @@ public:
     virtual int handleEvent(WifiEvent &event);
     void setNanVendorEventAndDataLen(char *event, int len);
     void handleNanRx();
-    u32 getNanMatchHandle(u16 requestor_id, u8 *service_id);
+    u32 getNanMatchHandle(u16 requestor_id, u8 *service_id, const u8 *peer);
     wifi_error setCallbackHandler(NanCallbackHandler nHandler);
 
 
@@ -247,6 +248,9 @@ public:
                                               NanNIRARequest *pReq);
     wifi_error putNanSharedKeyDescriptorReq(transaction_id id,
                                        const NanSharedKeyRequest *pReq);
+    wifi_error putNanGroupKeyInstallReq(transaction_id id,
+                                        struct nan_groupkey_info *info);
+    wifi_error putNanGroupKeyPnReq(transaction_id id, u32 key_index);
     /* Functions for NAN error translation
        For NanResponse, NanPublishTerminatedInd, NanSubscribeTerminatedInd,
        NanDisabledInd, NanTransmitFollowupInd:
@@ -265,7 +269,7 @@ public:
     u8 *getClusterAddr();
     u8 getFollowupRxSupport();
     void saveServiceId(u8 *service_id, u16 sub_pub_handle,
-                        u32 instance_id, NanRole Pool);
+                        u32 instance_id, NanRole Pool, const u8 *addr);
     u8 *getServiceId(u32 instance_id, NanRole Pool);
     u16 getPubSubId(u32 instance_id, NanRole pool);
     void deleteServiceId(u16 sub_handle, u32 instance_id, NanRole pool);
