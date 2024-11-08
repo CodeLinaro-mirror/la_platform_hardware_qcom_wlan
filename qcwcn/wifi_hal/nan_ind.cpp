@@ -526,7 +526,8 @@ int NanCommand::getNanMatch(NanMatchInd *event)
             mNanCommandInstance->saveServiceId(outputTlv.value,
                                                event->publish_subscribe_id,
                                                event->requestor_instance_id,
-                                               NAN_ROLE_SUBSCRIBER);
+                                               NAN_ROLE_SUBSCRIBER,
+                                               event->addr);
             break;
         default:
             ALOGV("Unknown TLV type skipped");
@@ -637,7 +638,14 @@ int NanCommand::handleNanBootstrappingIndication()
     {
        hal_info *info = getHalInfo(wifiHandle());
        struct nan_pairing_peer_info *entry = NULL;
-
+       if (!info) {
+           ALOGE("%s: hal info NULL", __FUNCTION__);
+           return WIFI_ERROR_UNKNOWN;
+       }
+       if (!info->secure_nan) {
+           ALOGE("%s: Secure NAN not supported", __FUNCTION__);
+           return WIFI_ERROR_UNKNOWN;
+       }
        if (params->type == NAN_BS_TYPE_REQUEST) {
            NanBootstrappingRequestInd bootstrapReqInd;
 
@@ -777,6 +785,10 @@ int NanCommand::handleNanSharedKeyDescIndication()
     hal_info *info = getHalInfo(wifiHandle());
     if (!info) {
         ALOGE("%s: hal info NULL", __FUNCTION__);
+        return WIFI_ERROR_INVALID_ARGS;
+    }
+    if (!info->secure_nan) {
+        ALOGE("%s: Secure NAN not supported", __FUNCTION__);
         return WIFI_ERROR_INVALID_ARGS;
     }
     ifaceHandle = wifi_get_iface_handle(wifiHandle(),
@@ -1517,7 +1529,8 @@ int NanCommand::getNdpRequest(struct nlattr **tb_vendor,
             mNanCommandInstance->saveServiceId((u8 *)nla_data(tb_vendor[QCA_WLAN_VENDOR_ATTR_NDP_SERVICE_ID]),
                                                event->service_instance_id,
                                                event->ndp_instance_id,
-                                               NAN_ROLE_PUBLISHER);
+                                               NAN_ROLE_PUBLISHER,
+                                               event->peer_disc_mac_addr);
     } else {
         ALOGD("%s: Service ID not present", __FUNCTION__);
     }
