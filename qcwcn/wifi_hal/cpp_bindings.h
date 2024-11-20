@@ -510,4 +510,4 @@ wifi_error initialize_vendor_cmd(wifi_interface_handle iface,
                                  WifiVendorCommand **vCommand);
 #endif
 
-char *hangReasonToString(uint32_t hang_reason);
+const char *hangReasonToString(uint32_t hang_reason);

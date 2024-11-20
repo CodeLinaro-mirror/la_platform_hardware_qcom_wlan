@@ -498,7 +498,7 @@ const char *attributeToString(int attribute)
     }
 }
 
-char *hangReasonToString(uint32_t hang_reason)
+const char *hangReasonToString(uint32_t hang_reason)
 {
     switch (hang_reason) {
     C2S(QCA_WLAN_HANG_REASON_UNSPECIFIED)
