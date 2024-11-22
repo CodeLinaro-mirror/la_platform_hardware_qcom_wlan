@@ -811,8 +811,10 @@ wifi_error NanCommand::putNanPublish(transaction_id id, const NanPublishRequest 
         (pReq->rx_match_filter_len ? SIZEOF_TLV_HDR + pReq->rx_match_filter_len : 0) +
         (pReq->tx_match_filter_len ? SIZEOF_TLV_HDR + pReq->tx_match_filter_len : 0) +
         (SIZEOF_TLV_HDR + sizeof(NanServiceAcceptPolicy)) +
-        (pReq->cipher_type ? SIZEOF_TLV_HDR + sizeof(NanCsidType) : 0) +
+        ((pReq->cipher_type || pReq->nan_pairing_config.enable_pairing_setup) ?
+          SIZEOF_TLV_HDR + sizeof(NanCsidType) : 0) +
         ((pReq->sdea_params.config_nan_data_path || pReq->sdea_params.security_cfg ||
+          pReq->nan_pairing_config.enable_pairing_setup ||
           pReq->sdea_params.ranging_state || pReq->sdea_params.range_report ||
           pReq->sdea_params.qos_cfg || pReq->sdea_params.config_fsd_gas ||
           pReq->sdea_params.config_fsd_req || pReq->sdea_params.gtk_protection) ?
@@ -914,11 +916,14 @@ wifi_error NanCommand::putNanPublish(transaction_id id, const NanPublishRequest 
     tlvs = addTlv(NAN_TLV_TYPE_NAN_SERVICE_ACCEPT_POLICY, sizeof(NanServiceAcceptPolicy),
                   (const u8*)&pReq->service_responder_policy, tlvs);
 
-    if (pReq->cipher_type) {
+    if (pReq->cipher_type || pReq->nan_pairing_config.enable_pairing_setup) {
         NanCsidType pNanCsidType;
         pNanCsidType.csid_type = pReq->cipher_type;
 
         u16 tlv_type = NAN_TLV_TYPE_NAN_CSID;
+
+        if (pReq->nan_pairing_config.enable_pairing_setup)
+            pNanCsidType.csid_type |= NAN_CIPHER_SUITE_PUBLIC_KEY_PASN_128_MASK;
 
         if (pNanCsidType.csid_type & NAN_EXT_CSID_TYPE_MASK)
             tlv_type = NAN_TLV_TYPE_NAN_CSID_EXT;
@@ -945,6 +950,7 @@ wifi_error NanCommand::putNanPublish(transaction_id id, const NanPublishRequest 
 
     if (pReq->sdea_params.config_nan_data_path ||
         pReq->sdea_params.security_cfg ||
+        pReq->nan_pairing_config.enable_pairing_setup ||
         pReq->sdea_params.ranging_state ||
         pReq->sdea_params.range_report ||
         pReq->sdea_params.qos_cfg ||
@@ -962,7 +968,8 @@ wifi_error NanCommand::putNanPublish(transaction_id id, const NanPublishRequest 
                                   NAN_DATA_PATH_UNICAST_MSG;
 
         }
-        if (pReq->sdea_params.security_cfg) {
+        if (pReq->sdea_params.security_cfg ||
+            pReq->nan_pairing_config.enable_pairing_setup) {
             pNanFWSdeaCtrlParams.security_required =
                                          pReq->sdea_params.security_cfg;
         }
@@ -1193,8 +1200,10 @@ wifi_error NanCommand::putNanSubscribe(transaction_id id,
         (pReq->service_specific_info_len ? SIZEOF_TLV_HDR + pReq->service_specific_info_len : 0) +
         (pReq->rx_match_filter_len ? SIZEOF_TLV_HDR + pReq->rx_match_filter_len : 0) +
         (pReq->tx_match_filter_len ? SIZEOF_TLV_HDR + pReq->tx_match_filter_len : 0) +
-        (pReq->cipher_type ? SIZEOF_TLV_HDR + sizeof(NanCsidType) : 0) +
+        ((pReq->cipher_type || pReq->nan_pairing_config.enable_pairing_setup) ?
+          SIZEOF_TLV_HDR + sizeof(NanCsidType) : 0) +
         ((pReq->sdea_params.config_nan_data_path || pReq->sdea_params.security_cfg ||
+          pReq->nan_pairing_config.enable_pairing_setup ||
           pReq->sdea_params.ranging_state || pReq->sdea_params.range_report ||
           pReq->sdea_params.qos_cfg || pReq->sdea_params.config_fsd_gas ||
           pReq->sdea_params.config_fsd_req || pReq->sdea_params.gtk_protection) ?
@@ -1302,11 +1311,14 @@ wifi_error NanCommand::putNanSubscribe(transaction_id id,
                       (const u8*)&pReq->intf_addr[i][0], tlvs);
     }
 
-    if (pReq->cipher_type) {
+    if (pReq->cipher_type || pReq->nan_pairing_config.enable_pairing_setup) {
         NanCsidType pNanCsidType;
         pNanCsidType.csid_type = pReq->cipher_type;
 
         u16 tlv_type = NAN_TLV_TYPE_NAN_CSID;
+
+        if (pReq->nan_pairing_config.enable_pairing_setup)
+            pNanCsidType.csid_type |= NAN_CIPHER_SUITE_PUBLIC_KEY_PASN_128_MASK;
 
         if (pNanCsidType.csid_type & NAN_EXT_CSID_TYPE_MASK)
             tlv_type = NAN_TLV_TYPE_NAN_CSID_EXT;
@@ -1333,6 +1345,7 @@ wifi_error NanCommand::putNanSubscribe(transaction_id id,
 
     if (pReq->sdea_params.config_nan_data_path ||
         pReq->sdea_params.security_cfg ||
+        pReq->nan_pairing_config.enable_pairing_setup ||
         pReq->sdea_params.ranging_state ||
         pReq->sdea_params.range_report ||
         pReq->sdea_params.qos_cfg ||
@@ -1350,7 +1363,8 @@ wifi_error NanCommand::putNanSubscribe(transaction_id id,
                                   NAN_DATA_PATH_UNICAST_MSG;
 
         }
-        if (pReq->sdea_params.security_cfg) {
+        if (pReq->sdea_params.security_cfg ||
+            pReq->nan_pairing_config.enable_pairing_setup) {
             pNanFWSdeaCtrlParams.security_required =
                                          pReq->sdea_params.security_cfg;
         }
