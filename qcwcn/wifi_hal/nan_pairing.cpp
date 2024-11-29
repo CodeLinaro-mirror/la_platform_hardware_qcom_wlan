@@ -398,7 +398,8 @@ void nan_process_followup_frame(wifi_handle handle, const u8 *buf,
     u16 service_info_offset;
     u16 followup_ind_size;
     u8 *pos, *ptlv, *temptlv;
-    u8 *sdea_attr_temp, sdea_attr_len;
+    u8 *sdea_attr_temp;
+    u16 sdea_attr_len;
     u8 i, j, sda_count = 0, sdea_count = 0;
     u8 *sda[NAN_MAX_SD_ATTRS_PER_FRAME];
     size_t sda_len[NAN_MAX_SD_ATTRS_PER_FRAME];
@@ -504,8 +505,8 @@ void nan_process_followup_frame(wifi_handle handle, const u8 *buf,
             sdea_attr_temp += NAN_SDE_ATTR_LEN_OFFSET;
             sdea_attr_len = WPA_GET_LE16(sdea_attr_temp);
             /* NAN_SDE_ATTR_OFFSET_INSTANCE_ID */
-            if (sd_attr->instance_id == *(sdea_attr_temp + 3)) {
-                if (!nan_get_sde_attr((sdea_attr_temp + 3), sdea_attr_len,
+            if (sd_attr->instance_id == *(sdea_attr_temp + 2)) {
+                if (!nan_get_sde_attr((sdea_attr_temp + 2), sdea_attr_len,
                                       &sde_attr)) {
                     ALOGE("Incorrect SD extended attribute");
                     return;
@@ -723,6 +724,13 @@ void nan_rx_mgmt_auth(wifi_handle handle, const u8 *frame, size_t len)
     struct wpa_pasn_params_data pasn_data;
     struct nan_pairing_peer_info *peer;
     struct ieee80211_mgmt *mgmt = (struct ieee80211_mgmt *) frame;
+    NanCommand *nanCommand = NULL;
+
+    nanCommand = NanCommand::instance(handle);
+    if (nanCommand == NULL) {
+        ALOGE("%s: Error NanCommand NULL", __FUNCTION__);
+        return;
+    }
 
     if (!info || !info->secure_nan) {
         ALOGE("%s: secure nan NULL", __FUNCTION__);
@@ -772,7 +780,18 @@ void nan_rx_mgmt_auth(wifi_handle handle, const u8 *frame, size_t len)
                             pasn->peer_addr, pasn->cipher, nanPMKLifetime,
                             &pasn->ptk, NULL, NULL, pasn->akmp);
             memset(&pasn->ptk, 0, sizeof(struct wpa_ptk));
-        } else if (ret == -1) {
+        } else if (ret == -1 || mgmt->u.auth.status_code) {
+            NanPairingConfirmInd evt;
+
+            memset(&evt, 0, sizeof(NanPairingConfirmInd));
+            evt.pairing_instance_id = peer->pairing_instance_id;
+            evt.rsp_code = NAN_PAIRING_REQUEST_REJECT;
+            evt.reason_code = NAN_STATUS_PROTOCOL_FAILURE;
+            evt.enable_pairing_cache = 0;
+            nanCommand->handleNanPairingConfirm(&evt);
+
+            peer->is_paired = false;
+            peer->is_pairing_in_progress = false;
             wpa_pasn_reset(pasn);
             ALOGE(" %s wpa_pasn_auth_rx failed", __FUNCTION__);
             peer->peer_role = SECURE_NAN_IDLE;
