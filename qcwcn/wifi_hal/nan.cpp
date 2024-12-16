@@ -266,8 +266,6 @@ wifi_error nan_publish_request(transaction_id id,
         info->secure_nan->supported_bootstrap =
               msg->nan_pairing_config.supported_bootstrapping_methods;
 #ifdef WPA_PASN_LIB
-        if (!msg->cipher_capabilities && msg->nan_pairing_config.enable_pairing_setup)
-            msg->cipher_capabilities = 0x4;
         if (!info->secure_nan->dev_grp_keys)
             nan_pairing_derive_grp_keys(info, t_nanCommand->getNmi(),
                                         msg->cipher_capabilities);
@@ -402,8 +400,6 @@ wifi_error nan_subscribe_request(transaction_id id,
         info->secure_nan->supported_bootstrap =
               msg->nan_pairing_config.supported_bootstrapping_methods;
 #ifdef WPA_PASN_LIB
-        if (!msg->cipher_capabilities && msg->nan_pairing_config.enable_pairing_setup)
-            msg->cipher_capabilities = 0x4;
         if (!info->secure_nan->dev_grp_keys)
             nan_pairing_derive_grp_keys(info, t_nanCommand->getNmi(),
                                         msg->cipher_capabilities);
@@ -2202,7 +2198,7 @@ bool NanCommand::isNanEnabled()
  * pool - Subscriber/Publisher entry based on NAN/NDP Indication
  */
 void NanCommand::saveServiceId(u8 *service_id, u16 sub_pub_handle,
-                               u32 instance_id, NanRole pool)
+                               u32 instance_id, NanRole pool, const u8 *addr)
 {
     int i;
 
@@ -2228,6 +2224,8 @@ void NanCommand::saveServiceId(u8 *service_id, u16 sub_pub_handle,
             memcpy(mStorePubParams[i].service_id, service_id, NAN_SVC_ID_SIZE);
             mStorePubParams[i].subscriber_publisher_id = sub_pub_handle;
             mStorePubParams[i].instance_id = instance_id;
+            if (addr)
+                memcpy(mStorePubParams[i].peer_mac, addr, NAN_MAC_ADDR_LEN);
             ALOGV("Added new entry in Publisher pool at index=%d with "
                   "Publish ID=%d and Instance ID=%d", i,
                   mStorePubParams[i].subscriber_publisher_id,
@@ -2253,6 +2251,8 @@ void NanCommand::saveServiceId(u8 *service_id, u16 sub_pub_handle,
             memcpy(mStoreSubParams[i].service_id, service_id, NAN_SVC_ID_SIZE);
             mStoreSubParams[i].subscriber_publisher_id = sub_pub_handle;
             mStoreSubParams[i].instance_id = instance_id;
+            if (addr)
+                memcpy(mStoreSubParams[i].peer_mac, addr, NAN_MAC_ADDR_LEN);
             ALOGV("Added new entry in Subscriber pool at index=%d with "
                   "Subscribe ID=%d and Instance ID=%d", i,
                   mStoreSubParams[i].subscriber_publisher_id,
@@ -2335,7 +2335,8 @@ u16 NanCommand::getPubSubId(u32 instance_id, NanRole pool)
     return 0;
 }
 
-u32 NanCommand::getNanMatchHandle(u16 requestor_id, u8 *service_id)
+u32 NanCommand::getNanMatchHandle(u16 requestor_id, u8 *service_id,
+                                  const u8 *peer)
 {
     int i;
 
@@ -2345,7 +2346,8 @@ u32 NanCommand::getNanMatchHandle(u16 requestor_id, u8 *service_id)
     for (i = 0; i < mNanMaxSubscribes; i++) {
         if (mStoreSubParams[i].subscriber_publisher_id == requestor_id &&
             !memcmp(mStoreSubParams[i].service_id, service_id,
-             NAN_SD_ATTR_SERVICE_ID_LEN)) {
+             NAN_SD_ATTR_SERVICE_ID_LEN) &&
+            !memcmp(mStoreSubParams[i].peer_mac, peer, NAN_MAC_ADDR_LEN)) {
             return mStoreSubParams[i].instance_id;
         }
     }
