@@ -1705,6 +1705,8 @@ int LLStatsCommand::handleResponse(WifiEvent &reply)
                                 ALOGE("%s: pMloPeerStats or pPeerLinkIDs: "
                                       "malloc Failed", __FUNCTION__);
                                 status = WIFI_ERROR_OUT_OF_MEMORY;
+                                if (pMloPeerStats) free(pMloPeerStats);
+                                if (pPeerLinkIDs) free(pPeerLinkIDs);
                                 goto cleanup;
                             }
 #ifdef QC_HAL_DEBUG
