@@ -817,7 +817,9 @@ wifi_error wifi_select_tx_power_scenario(wifi_interface_handle handle,
     if  (info->sar_version == QCA_WLAN_VENDOR_SAR_VERSION_1)
         return wifi_select_SARv01_tx_power_scenario(handle,scenario);
     else if(info->sar_version == QCA_WLAN_VENDOR_SAR_VERSION_2 ||
-              info->sar_version == QCA_WLAN_VENDOR_SAR_VERSION_3)
+            info->sar_version == QCA_WLAN_VENDOR_SAR_VERSION_3 ||
+            info->sar_version == QCA_WLAN_VENDOR_SAR_VERSION_4 ||
+            info->sar_version == QCA_WLAN_VENDOR_SAR_VERSION_5)
         return wifi_select_SARv02_tx_power_scenario(handle,scenario);
     else {
         ALOGE("wifi_select_tx_power_scenario %u invalid or not supported", (u32)info->sar_version);
@@ -1306,8 +1308,8 @@ wifi_error wifi_virtual_interface_create(wifi_handle handle,
     // Update dynamic interface list
     added_ifaces.push_back(std::string(ifname));
     if (iface_type == WIFI_INTERFACE_TYPE_STA) {
-         int sock = socket(AF_INET, SOCK_DGRAM, 0);
-         if(sock < 0) {
+        int sock = socket(AF_INET, SOCK_DGRAM, 0);
+        if(sock < 0) {
              ret = WIFI_ERROR_UNKNOWN;
              ALOGE("%s :socket error, Failed to bring up iface \n", __func__);
              goto done;
@@ -1318,6 +1320,7 @@ wifi_error wifi_virtual_interface_create(wifi_handle handle,
         if (ioctl(sock, SIOCGIFFLAGS, &ifr) != 0) {
             ret = WIFI_ERROR_UNKNOWN;
             ALOGE("%s :Could not read interface %s flags \n", __func__, ifname);
+            close(sock);
             goto done;
         }
         ifr.ifr_flags |= IFF_UP;
@@ -1325,6 +1328,7 @@ wifi_error wifi_virtual_interface_create(wifi_handle handle,
             ret = WIFI_ERROR_UNKNOWN;
             ALOGE("%s :Could not bring iface %s up \n", __func__, ifname);
         }
+        close(sock);
     }
 
 done:
