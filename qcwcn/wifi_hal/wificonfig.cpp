@@ -1313,8 +1313,8 @@ wifi_error wifi_virtual_interface_create(wifi_handle handle,
     // Update dynamic interface list
     added_ifaces.push_back(std::string(ifname));
     if (iface_type == WIFI_INTERFACE_TYPE_STA) {
-         int sock = socket(AF_INET, SOCK_DGRAM, 0);
-         if(sock < 0) {
+        int sock = socket(AF_INET, SOCK_DGRAM, 0);
+        if(sock < 0) {
              ret = WIFI_ERROR_UNKNOWN;
              ALOGE("%s :socket error, Failed to bring up iface \n", __func__);
              goto done;
@@ -1325,6 +1325,7 @@ wifi_error wifi_virtual_interface_create(wifi_handle handle,
         if (ioctl(sock, SIOCGIFFLAGS, &ifr) != 0) {
             ret = WIFI_ERROR_UNKNOWN;
             ALOGE("%s :Could not read interface %s flags \n", __func__, ifname);
+            close(sock);
             goto done;
         }
         ifr.ifr_flags |= IFF_UP;
@@ -1332,6 +1333,7 @@ wifi_error wifi_virtual_interface_create(wifi_handle handle,
             ret = WIFI_ERROR_UNKNOWN;
             ALOGE("%s :Could not bring iface %s up \n", __func__, ifname);
         }
+        close(sock);
     }
 
 done:
