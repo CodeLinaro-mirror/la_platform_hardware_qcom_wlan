@@ -1,3 +1,4 @@
+ifeq ($(TARGET_BOARD_PLATFORM), monaco)
 ifneq (,$(filter arm aarch64 arm64, $(TARGET_ARCH)))
 LOCAL_PATH := $(call my-dir)
 include $(CLEAR_VARS)
@@ -26,3 +27,4 @@ LOCAL_MODULE_TAGS := optional
 LOCAL_CFLAGS += -Wall -Werror
 include $(BUILD_EXECUTABLE)
 endif
+endif #TARGET_BOARD_PLATFORM
