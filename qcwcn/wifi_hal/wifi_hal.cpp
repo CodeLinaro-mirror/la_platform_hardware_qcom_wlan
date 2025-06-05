@@ -118,6 +118,8 @@
 #define POLL_DRIVER_DURATION_US (100000)
 #define POLL_DRIVER_MAX_TIME_MS (10000)
 
+#define SOCK_BUF_SIZE (256 * 1024)
+
 static int attach_monitor_sock(wifi_handle handle, wifihal_ctrl_req_t *ctrl_msg);
 
 static int dettach_monitor_sock(wifi_handle handle, wifihal_ctrl_req_t *ctrl_msg);
@@ -514,7 +516,7 @@ static wifi_error wifi_init_user_sock(hal_info *info)
     }
 
     /* Set the socket buffer size */
-    if (nl_socket_set_buffer_size(user_sock, (256*1024), 0) < 0) {
+    if (nl_socket_set_buffer_size(user_sock, (SOCK_BUF_SIZE), 0) < 0) {
         ALOGE("Could not set size for user_sock: %s",
                    strerror(errno));
         /* continue anyway with the default (smaller) buffer */
@@ -545,6 +547,13 @@ static wifi_error wifi_init_user_sock(hal_info *info)
     }
 
     info->user_sock = user_sock;
+    int opt = 1;
+    ret = setsockopt(nl_socket_get_fd(user_sock), SOL_NETLINK,
+                     NETLINK_NO_ENOBUFS, &opt, sizeof(opt));
+    ALOGV("configured NETLINK_NO_ENOBUFS sockopt %d", ret);
+    ret = setsockopt(nl_socket_get_fd(user_sock), SOL_NETLINK,
+                     NETLINK_BROADCAST_ERROR, &opt, sizeof(opt));
+    ALOGV("configured NETLINK_BROADCAST_ERROR sockopt %d", ret);
     ALOGV("Initiialized diag sock successfully");
     return WIFI_SUCCESS;
 }
