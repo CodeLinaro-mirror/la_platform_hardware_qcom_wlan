@@ -1189,8 +1189,7 @@ wifi_error NanCommand::putNanPublish(transaction_id id, const NanPublishRequest 
         }
         if (pReq->sdea_params.security_cfg ||
             pReq->nan_pairing_config.enable_pairing_setup) {
-            pNanFWSdeaCtrlParams.security_required =
-                                         pReq->sdea_params.security_cfg;
+            pNanFWSdeaCtrlParams.security_required = 1;
         }
         if (pReq->sdea_params.ranging_state) {
             pNanFWSdeaCtrlParams.ranging_required =
@@ -1211,7 +1210,8 @@ wifi_error NanCommand::putNanPublish(transaction_id id, const NanPublishRequest 
             pNanFWSdeaCtrlParams.fsd_required =  pReq->sdea_params.enable_fsd_req;
             ALOGV("fsd_required :%d", pNanFWSdeaCtrlParams.fsd_required);
         }
-        if (pReq->sdea_params.gtk_protection) {
+        if (pReq->sdea_params.gtk_protection ||
+            (pNanFWSdeaCtrlParams.security_required && grpKeys)) {
             pNanFWSdeaCtrlParams.gtk_protection = 1;
             ALOGV("gtk_protection :%d", pNanFWSdeaCtrlParams.gtk_protection);
         }
@@ -1662,8 +1662,7 @@ wifi_error NanCommand::putNanSubscribe(transaction_id id,
         }
         if (pReq->sdea_params.security_cfg ||
             pReq->nan_pairing_config.enable_pairing_setup) {
-            pNanFWSdeaCtrlParams.security_required =
-                                         pReq->sdea_params.security_cfg;
+            pNanFWSdeaCtrlParams.security_required = 1;
         }
         if (pReq->sdea_params.ranging_state) {
             pNanFWSdeaCtrlParams.ranging_required =
@@ -1684,7 +1683,8 @@ wifi_error NanCommand::putNanSubscribe(transaction_id id,
             pNanFWSdeaCtrlParams.fsd_required =  pReq->sdea_params.enable_fsd_req;
             ALOGI("%s: fsd_required :%d",__func__, pNanFWSdeaCtrlParams.fsd_required);
         }
-        if (pReq->sdea_params.gtk_protection) {
+        if (pReq->sdea_params.gtk_protection ||
+            (pNanFWSdeaCtrlParams.security_required && grpKeys)) {
             pNanFWSdeaCtrlParams.gtk_protection = 1;
             ALOGI("%s: gtk_protection :%d",__func__, pNanFWSdeaCtrlParams.gtk_protection);
         }
