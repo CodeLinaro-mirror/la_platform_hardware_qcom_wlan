@@ -54,6 +54,9 @@ extern "C"
 #define FIRMWARE_PRINTS_RB_BUF_SIZE 32768
 #define FIRMWARE_PRINTS_NUM_BUFS    16
 
+#define CUSTOM_RB_BUF_SIZE 4096
+#define CUSTOM_NUM_BUFS    128
+
 #define LOGGER_RING_BUFFER (WIFI_LOGGER_CONNECT_EVENT_SUPPORTED \
                             | WIFI_LOGGER_POWER_EVENT_SUPPORTED \
                             | WIFI_LOGGER_PER_PACKET_TX_RX_STATUS_SUPPORTED)
@@ -64,6 +67,7 @@ enum rb_info_indices {
     PKT_STATS_RB_ID = 2,
     DRIVER_PRINTS_RB_ID = 3,
     FIRMWARE_PRINTS_RB_ID = 4,
+    CUSTOM_RB_ID = 5,
 };
 
 typedef struct {

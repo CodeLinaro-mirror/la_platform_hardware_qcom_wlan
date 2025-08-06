@@ -2302,6 +2302,26 @@ static wifi_error parse_pkt_fate_stats(hal_info *info, u8 *buf, u16 size)
     return WIFI_SUCCESS;
 }
 
+static wifi_error update_custom_to_ring_buf(hal_info *info,
+                      u8 *rb_entry, u32 size)
+{
+    int num_records = 1;
+    wifi_error status;
+
+    status = ring_buffer_write(&info->rb_infos[CUSTOM_RB_ID],
+                               (u8*)rb_entry,
+                               size,
+                               num_records,
+                               size);
+
+   if (status != WIFI_SUCCESS) {
+            ALOGE("JNL: Failed to write driver prints rb payload %d", status);
+            return status;
+      }
+
+    return WIFI_SUCCESS;
+}
+
 /*
  *  ---------------------------------------------------------------------------------
  *  | pkt log    |              packet log data contain sub packet log info         |
@@ -2432,6 +2452,7 @@ static wifi_error parse_stats_record_v2(hal_info *info,
                                      wh_pktlog_hdr_v2_t *pkt_stats_header)
 {
     wifi_error status = WIFI_SUCCESS;
+    pkt_custom_hdr *pkt_hdr_buf = NULL;
 
     if (pkt_stats_header->log_type == PKTLOG_TYPE_RX_STAT) {
         /* Ignore the event if it doesn't carry RX descriptor */
@@ -2460,6 +2481,13 @@ static wifi_error parse_stats_record_v2(hal_info *info,
                pkt_stats_header->log_type == PKTLOG_TYPE_LITE_T2H ||
                pkt_stats_header->log_type == PKTLOG_TYPE_LITE_RX) {
         //TODO Parsing of per packet log.
+    } else if(pkt_stats_header->log_type == PKTLOG_TYPE_CUSTOM_PKT) {
+        if (pkt_stats_header->flags & PKT_INFO_FLG_PKT_DUMP_V2) {
+            pkt_hdr_buf = (pkt_custom_hdr *)
+                          ((u8 *)pkt_stats_header + sizeof(wh_pktlog_hdr_v2_t));
+
+            update_custom_to_ring_buf(info, (u8 *)pkt_hdr_buf, pkt_stats_header->size);
+        }
     } else {
         //No Parsing on Default packet log type.
     }

@@ -46,7 +46,8 @@
 #define PKTLOG_TYPE_PKT_STATS       9
 #define PKTLOG_TYPE_PKT_DUMP        10
 #define PKTLOG_TYPE_PKT_DUMP_V2     11
-#define PKTLOG_TYPE_MAX             12
+#define PKTLOG_TYPE_CUSTOM_PKT      26
+#define PKTLOG_TYPE_MAX             27
 #define BW_OFFSET 8
 #define INVALID_RSSI 255
 #define INVALID_RATE_CODE 0xff
@@ -637,6 +638,14 @@ typedef struct {
     u32 driver_ts;
     u16 fw_ts;
 } __attribute__((packed)) pktdump_hdr;
+
+typedef struct {
+    uint32_t qtime;
+    uint16_t reserved;
+    uint8_t type;
+    uint8_t payload_len;
+    uint8_t payload[0];
+} __attribute__((packed)) pkt_custom_hdr;
 
 typedef struct {
     frame_type payload_type;
