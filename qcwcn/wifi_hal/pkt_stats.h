@@ -639,6 +639,7 @@ typedef struct {
     u16 fw_ts;
 } __attribute__((packed)) pktdump_hdr;
 
+#define CUSTOM_NODE_BUF_MAX 256
 typedef struct {
     uint32_t qtime;
     uint16_t reserved;

@@ -2355,6 +2355,10 @@ static wifi_error parse_stats_sw_event(hal_info *info,
     num_of_node = (pkt_stats_header->reserved >> 16) & 0xFFFF;
     pkt_sub_type = pkt_stats_header->reserved & 0xFFFF;
 
+    pkt_custom_hdr *custom_node_hdr = NULL;
+    pkt_custom_hdr *p_node_pkt;
+    u8 out_buf[CUSTOM_NODE_BUF_MAX];
+
     do {
         if (pkt_stats_len < sizeof(wh_pktlog_hdr_v2_t)) {
             status = WIFI_ERROR_INVALID_ARGS;
@@ -2396,6 +2400,19 @@ static wifi_error parse_stats_sw_event(hal_info *info,
 
                        info->pkt_stats->tx_stats_events |=  BIT(PKTLOG_TYPE_TX_STAT);
                        rb_pkt_stats->flags |= PER_PACKET_ENTRY_FLAGS_80211_HEADER;
+                      }
+                 break;
+                 case PKTLOG_TYPE_CUSTOM_PKT:
+                      {
+                       if(node_pkt_len > CUSTOM_NODE_BUF_MAX) {
+                          ALOGE("error len %d", node_pkt_len);
+                          break;
+                       }
+                       custom_node_hdr = (pkt_custom_hdr *)(
+                                          (u8 *)pkt_stats_node_header + sizeof(wh_pktlog_hdr_v2_t));
+                       p_node_pkt = (pkt_custom_hdr *)&out_buf[0];
+                       memcpy(p_node_pkt, custom_node_hdr, node_pkt_len);
+                       update_custom_to_ring_buf(info, (u8 *)p_node_pkt, node_pkt_len);
                       }
                  break;
                  default:
