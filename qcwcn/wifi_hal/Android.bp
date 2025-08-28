@@ -33,6 +33,7 @@ cc_library_shared {
         "-Wno-unused-parameter",
         "-Wall",
         "-Werror",
+        "-Wno-format",
     ],
     local_include_dirs: ["wifi_hal_ctrl", "vendor_nan"],
     srcs: ["wifi_hal_ctrl/wifi_hal_ctrl.c"],
@@ -126,6 +127,7 @@ cc_library {
         // gscan.cpp: address of array 'cached_results[i].results' will always evaluate to 'true'
         "-Wno-pointer-bool-conversion",
         "-DCONFIG_NAN_VENDOR_AIDL",
+        "-Wno-format",
     ],
     product_variables: {
         debuggable: {
