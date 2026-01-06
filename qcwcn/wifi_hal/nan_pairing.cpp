@@ -813,6 +813,9 @@ void nan_rx_mgmt_auth(wifi_handle handle, const u8 *frame, size_t len)
             wpa_pasn_reset(pasn);
             ALOGE(" %s wpa_pasn_auth_rx failed", __FUNCTION__);
             peer->peer_role = SECURE_NAN_IDLE;
+        } else {
+            ALOGV(" %s wpa_pasn_auth_rx failed, ret=%d, status_code=%zu",
+                  __FUNCTION__, ret, mgmt->u.auth.status_code);
         }
     } else {
        nan_pairing_handle_pasn_auth(handle, frame, len);
@@ -835,7 +838,9 @@ nan_pairing_add_peer_to_list(struct wpa_secure_nan *secure_nan, u8 *mac)
                      __FUNCTION__, MAC2STR(mac));
            }
            entry->pairing_instance_id = secure_nan->pairing_id++;
-           wpa_pasn_reset(&entry->pasn);
+           entry->pasn.cb_ctx = secure_nan->cb_ctx;
+           entry->pasn.send_mgmt = nan_send_tx_mgmt;
+           entry->pasn.validate_custom_pmkid = nan_pairing_validate_custom_pmkid;
            return entry;
        }
     }
