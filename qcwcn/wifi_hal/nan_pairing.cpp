@@ -794,8 +794,8 @@ void nan_rx_mgmt_auth(wifi_handle handle, const u8 *frame, size_t len)
                 nan_csia *csia = (nan_csia *)nan_attr_ie;
                 peer->csia_cap_info = csia->caps;
             }
-            ptksa_cache_add(info->secure_nan->ptksa, pasn->own_addr,
-                            pasn->peer_addr, pasn->cipher, nanPMKLifetime,
+            ptksa_cache_add(info->secure_nan->ptksa, info->secure_nan->own_addr,
+                            peer->bssid, pasn->cipher, nanPMKLifetime,
                             &pasn->ptk, NULL, NULL, pasn->akmp);
             memset(&pasn->ptk, 0, sizeof(struct wpa_ptk));
         } else if (ret == -1 || mgmt->u.auth.status_code) {
@@ -1136,12 +1136,12 @@ int nan_send_tx_mgmt(void *ctx, const u8 *frame_buf, size_t frame_len,
     if (peer && peer->peer_role == SECURE_NAN_PAIRING_INITIATOR &&
         auth_transaction == 2 && status_code == WLAN_STATUS_SUCCESS) {
         pasn = &peer->pasn;
-        ptksa_cache_add(info->secure_nan->ptksa, pasn->own_addr,
-                        pasn->peer_addr, pasn->cipher, 43200,
+        ptksa_cache_add(info->secure_nan->ptksa, info->secure_nan->own_addr,
+                        peer->bssid, pasn->cipher, 43200,
                         &pasn->ptk, NULL, NULL,
                         pasn->akmp);
-        nan_pairing_set_keys_from_cache(handle, pasn->own_addr,
-                                        (u8 *)pasn->peer_addr, pasn->cipher,
+        nan_pairing_set_keys_from_cache(handle, info->secure_nan->own_addr,
+                                        peer->bssid, pasn->cipher,
                                         pasn->akmp, peer->peer_role);
     }
 

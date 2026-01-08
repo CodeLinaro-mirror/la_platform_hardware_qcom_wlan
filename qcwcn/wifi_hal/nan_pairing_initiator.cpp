@@ -259,7 +259,7 @@ wifi_error nan_pairing_request(transaction_id id,
             msg->akm == SAE) {
             if (!msg->key_info.body.pmk_info.pmk_len ||
                 nan_pairing_initiator_pmksa_cache_add(secure_nan->initiator_pmksa,
-                                                      pasn->own_addr,
+                                                      secure_nan->own_addr,
                                                       msg->peer_disc_mac_addr,
                                                       msg->key_info.body.pmk_info.pmk,
                                                       msg->key_info.body.pmk_info.pmk_len)) {

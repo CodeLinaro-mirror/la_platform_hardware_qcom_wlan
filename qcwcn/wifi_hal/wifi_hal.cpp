@@ -4122,7 +4122,7 @@ void wifihal_event_mgmt_tx_status(wifi_handle handle, struct nlattr *cookie,
     ret = wpa_pasn_auth_tx_status(pasn, frame, len, ack != NULL);
     if (ret == 1) {
         ALOGI("nl80211: PASN transaction Success");
-        nan_pairing_set_keys_from_cache(handle, pasn->own_addr, pasn->peer_addr,
+        nan_pairing_set_keys_from_cache(handle, info->secure_nan->own_addr, peer->bssid,
                                         pasn->cipher, pasn->akmp,
                                         SECURE_NAN_PAIRING_RESPONDER);
         return;

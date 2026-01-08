@@ -235,12 +235,12 @@ wifi_error nan_pairing_indication_response(transaction_id id,
             msg->akm == SAE) {
             if (!msg->key_info.body.pmk_info.pmk_len ||
                 nan_pairing_responder_pmksa_cache_add(secure_nan->responder_pmksa,
-                                                      pasn->own_addr,
-                                                      pasn->peer_addr,
+                                                      secure_nan->own_addr,
+                                                      peer->bssid,
                                                       msg->key_info.body.pmk_info.pmk,
                                                       msg->key_info.body.pmk_info.pmk_len)) {
                 ALOGE("pmksa cache add failed for peer=" MACSTR " and pmk len=%d ",
-                      MAC2STR(pasn->peer_addr),
+                      MAC2STR(peer->bssid),
                       msg->key_info.body.pmk_info.pmk_len);
                 goto fail;
             }
@@ -281,7 +281,7 @@ wifi_error nan_pairing_indication_response(transaction_id id,
     pasn->pmksa = secure_nan->responder_pmksa;
     peer->trans_id = id;
     peer->trans_id_valid = true;
-    ret = handle_auth_pasn_1(pasn, pasn->own_addr, (u8 *)mgmt->sa, mgmt,
+    ret = handle_auth_pasn_1(pasn, secure_nan->own_addr, (u8 *)mgmt->sa, mgmt,
                              peer->frame->len, reject);
     if (ret == -1) {
         NanPairingConfirmInd evt;
@@ -455,7 +455,7 @@ int nan_pairing_handle_pasn_auth(wifi_handle handle, const u8 *data, size_t len)
             return WIFI_SUCCESS;
         }
         pasn = &entry->pasn;
-        ret = handle_auth_pasn_3(pasn, pasn->own_addr,
+        ret = handle_auth_pasn_3(pasn, info->secure_nan->own_addr,
                                  (u8 *)mgmt->sa, mgmt, len);
         if (ret != 0) {
             ALOGE("PASN Responder: Handle PASN Auth3 failed ");
