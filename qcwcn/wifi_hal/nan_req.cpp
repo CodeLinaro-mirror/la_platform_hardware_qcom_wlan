@@ -856,6 +856,10 @@ wifi_error NanCommand::putNanPublish(transaction_id id, const NanPublishRequest 
         );
     }
 
+    if (pReq->service_specific_info_len && !pReq->sdea_service_specific_info_len) {
+        /* For SSI in SDEA */
+        message_len += SIZEOF_TLV_HDR + pReq->service_specific_info_len;
+    }
     pNanPublishServiceReqMsg pFwReq = (pNanPublishServiceReqMsg)malloc(message_len);
     if (pFwReq == NULL) {
         cleanup();
@@ -970,8 +974,7 @@ wifi_error NanCommand::putNanPublish(transaction_id id, const NanPublishRequest 
         }
         if (pReq->sdea_params.security_cfg ||
             pReq->nan_pairing_config.enable_pairing_setup) {
-            pNanFWSdeaCtrlParams.security_required =
-                                         pReq->sdea_params.security_cfg;
+            pNanFWSdeaCtrlParams.security_required = 1;
         }
         if (pReq->sdea_params.ranging_state) {
             pNanFWSdeaCtrlParams.ranging_required =
@@ -992,7 +995,8 @@ wifi_error NanCommand::putNanPublish(transaction_id id, const NanPublishRequest 
             pNanFWSdeaCtrlParams.fsd_required =  pReq->sdea_params.enable_fsd_req;
             ALOGV("fsd_required :%d", pNanFWSdeaCtrlParams.fsd_required);
         }
-        if (pReq->sdea_params.gtk_protection) {
+        if (pReq->sdea_params.gtk_protection ||
+            (pNanFWSdeaCtrlParams.security_required && grpKeys)) {
             pNanFWSdeaCtrlParams.gtk_protection = 1;
             ALOGV("gtk_protection :%d", pNanFWSdeaCtrlParams.gtk_protection);
         }
@@ -1042,6 +1046,9 @@ wifi_error NanCommand::putNanPublish(transaction_id id, const NanPublishRequest 
     if (pReq->sdea_service_specific_info_len) {
         tlvs = addTlv(NAN_TLV_TYPE_SDEA_SERVICE_SPECIFIC_INFO, pReq->sdea_service_specific_info_len,
                       (const u8*)&pReq->sdea_service_specific_info[0], tlvs);
+    } else if (pReq->service_specific_info_len) {
+        tlvs = addTlv(NAN_TLV_TYPE_SDEA_SERVICE_SPECIFIC_INFO, pReq->service_specific_info_len,
+                      (const u8*)&pReq->service_specific_info[0], tlvs);
     }
 
     if (pReq->range_response_cfg.publish_id || pReq->range_response_cfg.ranging_response) {
@@ -1293,6 +1300,10 @@ wifi_error NanCommand::putNanSubscribe(transaction_id id,
     if (pReq->service_specific_info_len) {
         tlvs = addTlv(NAN_TLV_TYPE_SERVICE_SPECIFIC_INFO, pReq->service_specific_info_len,
                       (const u8*)&pReq->service_specific_info[0], tlvs);
+        std::memset(local_sdea_ssi, 0, NAN_MAX_SERVICE_SPECIFIC_INFO_LEN);
+        local_sdea_ssi_len = pReq->service_specific_info_len;
+        std::memcpy(local_sdea_ssi, (const u8*)&pReq->service_specific_info[0],
+                    local_sdea_ssi_len);
     }
     if (pReq->rx_match_filter_len) {
         tlvs = addTlv(NAN_TLV_TYPE_RX_MATCH_FILTER, pReq->rx_match_filter_len,
@@ -1365,8 +1376,7 @@ wifi_error NanCommand::putNanSubscribe(transaction_id id,
         }
         if (pReq->sdea_params.security_cfg ||
             pReq->nan_pairing_config.enable_pairing_setup) {
-            pNanFWSdeaCtrlParams.security_required =
-                                         pReq->sdea_params.security_cfg;
+            pNanFWSdeaCtrlParams.security_required = 1;
         }
         if (pReq->sdea_params.ranging_state) {
             pNanFWSdeaCtrlParams.ranging_required =
@@ -1387,7 +1397,8 @@ wifi_error NanCommand::putNanSubscribe(transaction_id id,
             pNanFWSdeaCtrlParams.fsd_required =  pReq->sdea_params.enable_fsd_req;
             ALOGI("%s: fsd_required :%d",__func__, pNanFWSdeaCtrlParams.fsd_required);
         }
-        if (pReq->sdea_params.gtk_protection) {
+        if (pReq->sdea_params.gtk_protection ||
+            (pNanFWSdeaCtrlParams.security_required && grpKeys)) {
             pNanFWSdeaCtrlParams.gtk_protection = 1;
             ALOGI("%s: gtk_protection :%d",__func__, pNanFWSdeaCtrlParams.gtk_protection);
         }
@@ -1585,7 +1596,7 @@ wifi_error NanCommand::putNanSharedKeyDescriptorReq(transaction_id id,
         (pReq->shared_key_attr_len ? SIZEOF_TLV_HDR + pReq->shared_key_attr_len : 0);
 
     /* SDA Attribute */
-    message_len += (SIZEOF_TLV_HDR + strlen("SHARED_KEY_DESCRIPTOR_REQUEST"));
+    message_len += SIZEOF_TLV_HDR;
     /* Mac address needs to be added in TLV */
     message_len += (SIZEOF_TLV_HDR + sizeof(pReq->peer_disc_mac_addr));
 
@@ -1617,8 +1628,8 @@ wifi_error NanCommand::putNanSharedKeyDescriptorReq(transaction_id id,
 
     u16 tlv_type = NAN_TLV_TYPE_SERVICE_SPECIFIC_INFO;
 
-    tlvs = addTlv(tlv_type, strlen("SHARED_KEY_DESCRIPTOR_REQUEST"),
-                  (const u8*)"SHARED_KEY_DESCRIPTOR_REQUEST", tlvs);
+    /* Pass empty SSI */
+    tlvs = addTlv(tlv_type, 0, (const u8*)"", tlvs);
 
     if (pReq->shared_key_attr_len) {
         ALOGI("Adding Shared Key Attr");
@@ -1652,7 +1663,7 @@ wifi_error NanCommand::putNanSharedKeyDescriptorReq(transaction_id id,
 
 wifi_error NanCommand::putNanBootstrappingReq(transaction_id id,
                                               const NanBootstrappingRequest *pReq,
-                                              u16 pub_sub_id)
+                                              u16 pub_sub_id, u8 dialog_token)
 {
     wifi_error ret;
     struct nlattr *nl_data;
@@ -1675,6 +1686,10 @@ wifi_error NanCommand::putNanBootstrappingReq(transaction_id id,
 
     /* Add bootstrapping parameters */
     message_len += (SIZEOF_TLV_HDR + sizeof(NanFWBootstrappingParams));
+
+    /* Add same SSI from subscriber request */
+    if (!pReq->sdea_service_specific_info_len)
+        message_len += (local_sdea_ssi_len ? SIZEOF_TLV_HDR + local_sdea_ssi_len : 0);
 
     pNanTransmitFollowupReqMsg pFwReq = (pNanTransmitFollowupReqMsg)malloc(message_len);
     if (pFwReq == NULL) {
@@ -1712,6 +1727,9 @@ wifi_error NanCommand::putNanBootstrappingReq(transaction_id id,
     if (pReq->sdea_service_specific_info_len) {
         tlvs = addTlv(NAN_TLV_TYPE_SDEA_SERVICE_SPECIFIC_INFO, pReq->sdea_service_specific_info_len,
                       (const u8*)&pReq->sdea_service_specific_info[0], tlvs);
+    } else if (local_sdea_ssi_len) {
+        tlvs = addTlv(NAN_TLV_TYPE_SDEA_SERVICE_SPECIFIC_INFO, local_sdea_ssi_len,
+                      (const u8*)&local_sdea_ssi[0], tlvs);
     }
 
     NanFWBootstrappingParams pNanFWBootstrappingParams;
@@ -1723,7 +1741,7 @@ wifi_error NanCommand::putNanBootstrappingReq(transaction_id id,
     } else {
         pNanFWBootstrappingParams.status = NAN_BS_STATUS_ACCEPT;
     }
-    pNanFWBootstrappingParams.dialog_token = 0;
+    pNanFWBootstrappingParams.dialog_token = dialog_token;
     pNanFWBootstrappingParams.bootstrapping_method_bitmap =
                                            pReq->request_bootstrapping_method;
     pNanFWBootstrappingParams.comeback_after = 0;
@@ -1758,6 +1776,37 @@ wifi_error NanCommand::putNanBootstrappingReq(transaction_id id,
     return ret;
 }
 
+u16 get_matching_bootstrap_method(u16 method)
+{
+   switch (method) {
+   case NAN_PAIRING_BOOTSTRAPPING_OPPORTUNISTIC_MASK:
+       return NAN_PAIRING_BOOTSTRAPPING_OPPORTUNISTIC_MASK;
+   case NAN_PAIRING_BOOTSTRAPPING_PIN_CODE_DISPLAY_MASK:
+       return NAN_PAIRING_BOOTSTRAPPING_PIN_CODE_KEYPAD_MASK;
+   case NAN_PAIRING_BOOTSTRAPPING_PASSPHRASE_DISPLAY_MASK:
+       return NAN_PAIRING_BOOTSTRAPPING_PASSPHRASE_KEYPAD_MASK;
+   case NAN_PAIRING_BOOTSTRAPPING_QR_DISPLAY_MASK:
+       return NAN_PAIRING_BOOTSTRAPPING_QR_SCAN_MASK;
+   case NAN_PAIRING_BOOTSTRAPPING_NFC_TAG_MASK:
+       return NAN_PAIRING_BOOTSTRAPPING_NFC_READER_MASK;
+   case NAN_PAIRING_BOOTSTRAPPING_PIN_CODE_KEYPAD_MASK:
+       return NAN_PAIRING_BOOTSTRAPPING_PIN_CODE_DISPLAY_MASK;
+   case NAN_PAIRING_BOOTSTRAPPING_PASSPHRASE_KEYPAD_MASK:
+       return NAN_PAIRING_BOOTSTRAPPING_PASSPHRASE_DISPLAY_MASK;
+   case NAN_PAIRING_BOOTSTRAPPING_QR_SCAN_MASK:
+       return NAN_PAIRING_BOOTSTRAPPING_QR_DISPLAY_MASK;
+   case NAN_PAIRING_BOOTSTRAPPING_NFC_READER_MASK:
+       return NAN_PAIRING_BOOTSTRAPPING_NFC_TAG_MASK;
+   case NAN_PAIRING_BOOTSTRAPPING_SERVICE_MANAGED_MASK:
+       return NAN_PAIRING_BOOTSTRAPPING_SERVICE_MANAGED_MASK;
+   case NAN_PAIRING_BOOTSTRAPPING_HANDSHAKE_SHIP_MASK:
+       return NAN_PAIRING_BOOTSTRAPPING_HANDSHAKE_SHIP_MASK;
+   default:
+       ALOGE("Invalid Bootstrap method = %d", method);
+   }
+   return 0;
+}
+
 wifi_error NanCommand::putNanBootstrappingIndicationRsp(transaction_id id,
                                 const NanBootstrappingIndicationResponse *pRsp)
 {
@@ -1777,7 +1826,8 @@ wifi_error NanCommand::putNanBootstrappingIndicationRsp(transaction_id id,
         (pRsp->service_specific_info_len ? SIZEOF_TLV_HDR +
          pRsp->service_specific_info_len : 0) +
         (pRsp->sdea_service_specific_info_len ? SIZEOF_TLV_HDR +
-         pRsp->sdea_service_specific_info_len : 0);
+         pRsp->sdea_service_specific_info_len : 0) +
+        (pRsp->cookie_length ? SIZEOF_TLV_HDR + pRsp->cookie_length : 0);
 
     /* Mac address needs to be added in TLV */
     message_len += (SIZEOF_TLV_HDR + sizeof(pRsp->peer_disc_mac_addr));
@@ -1844,19 +1894,20 @@ wifi_error NanCommand::putNanBootstrappingIndicationRsp(transaction_id id,
     memset(pNanFWBootstrappingParams, 0, sizeof(NanFWBootstrappingParams));
     pNanFWBootstrappingParams->type = NAN_BS_TYPE_RESPONSE;
     pNanFWBootstrappingParams->status = pRsp->rsp_code;
-    pNanFWBootstrappingParams->dialog_token = 0;
-    if (entry)
+    if (entry) {
+        pNanFWBootstrappingParams->dialog_token = entry->dialog_token;
         pNanFWBootstrappingParams->bootstrapping_method_bitmap =
-                                               entry->peer_supported_bootstrap;
-    else
-        pNanFWBootstrappingParams->bootstrapping_method_bitmap =
-                                         info->secure_nan->supported_bootstrap;
+                get_matching_bootstrap_method(entry->peer_supported_bootstrap);
+    }
 
     pNanFWBootstrappingParams->comeback_after = (u16)pRsp->come_back_delay;
 
     tlvs = addTlv(NAN_TLV_TYPE_BOOTSTRAPPING_PARAMS, sizeof(NanFWBootstrappingParams),
                   (const u8*)pNanFWBootstrappingParams, tlvs);
 
+    if (pRsp->cookie_length)
+           tlvs = addTlv(NAN_TLV_TYPE_BOOTSTRAPPING_COOKIE, pRsp->cookie_length,
+                         (const u8*)pRsp->cookie, tlvs);
     free(pNanFWBootstrappingParams);
 
     mVendorData = (char *)pFwReq;
