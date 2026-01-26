@@ -1816,7 +1816,8 @@ static int wpa_driver_ioctl(struct i802_bss *bss, char *cmd,
 	priv_cmd.buf = buf;
 	priv_cmd.used_len = buf_len;
 	priv_cmd.total_len = buf_len;
-	ifr.ifr_data = &priv_cmd;
+	// Cast required for platform compatibility
+	ifr.ifr_data = (void *)&priv_cmd;
 
 	if ((ioctl(drv->global->ioctl_sock, SIOCDEVPRIVATE + 1, &ifr)) < 0) {
 		wpa_printf(MSG_ERROR,"%s: failed to issue private commands\n", __func__);
@@ -7135,7 +7136,8 @@ int wpa_driver_nl80211_driver_cmd(void *priv, char *cmd, char *buf,
 		priv_cmd.buf = buf;
 		priv_cmd.used_len = buf_len;
 		priv_cmd.total_len = buf_len;
-		ifr.ifr_data = &priv_cmd;
+		// Cast required for platform compatibility
+		ifr.ifr_data = (void *)&priv_cmd;
 
 		if ((ret = ioctl(drv->global->ioctl_sock, SIOCDEVPRIVATE + 1, &ifr)) < 0) {
 			wpa_printf(MSG_ERROR, "%s: failed to issue private commands, ret:%d, errno:%d\n", __func__, ret, errno);
