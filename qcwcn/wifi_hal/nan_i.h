@@ -1007,19 +1007,29 @@ enum nan_attr_id {
 #define NAN_SHARED_KEY_ATTR_ID 0x24
 #define NAN_ENCRYPT_KEY_DATA   BIT(12)
 #define NAN_VENDOR_ATTR_TYPE   0xdd
+#define NAN_KEY_TYPE BIT(3)
+#define NAN_INSTALL_KEY BIT(6)
+#define NAN_KEY_ACK BIT(7)
+#define NAN_KEY_MIC BIT(8)
+#define NAN_SECURE BIT(9)
 
-#define NAN_KDE_TYPE_IGTK                 0x02
-#define NAN_KDE_TYPE_BIGTK                0x03
-#define NAN_KDE_TYPE_IGTK_LIFETIME        0x06
-#define NAN_KDE_TYPE_BIGTK_LIFETIME       0x07
+#define NAN_KDE_TYPE_IGTK                 0x09
+#define NAN_KDE_TYPE_BIGTK                0x0E
 #define NAN_KDE_TYPE_NIK                  0x24
-#define NAN_KDE_TYPE_NIK_LIFETIME         0x25
+#define NAN_KDE_TYPE_KEY_LIFETIME         0x25
 
 #define NAN_IGTK_KEY_IDX                   4
 #define NAN_BIGTK_KEY_IDX                  6
 
 #define NAN_PN_REQ_BITMAP_IGTK             BIT(0)
 #define NAN_PN_REQ_BITMAP_BIGTK            BIT(1)
+
+#define NAN_KEY_TYPE_BITMAP_GTK            BIT(0)
+#define NAN_KEY_TYPE_BITMAP_IGTK           BIT(1)
+#define NAN_KEY_TYPE_BITMAP_BIGTK          BIT(2)
+#define NAN_KEY_TYPE_BITMAP_NIK            BIT(3)
+#define NAN_KEY_TYPE_BITMAP_NDTK           BIT(4)
+#define NAN_KEY_TYPE_BITMAP_NMTK           BIT(5)
 
 /* sub attribute iteration helpers */
 #define for_each_nan_subattr(_subattr, _data, _datalen)                    \
@@ -1513,6 +1523,9 @@ typedef struct PACKED
     u32 max_subscribe_address;
     u32 max_nan_pairing_sessions;
     u32 nan_group_mfp_cap;
+    u32 is_6g_supported:1;
+    u32 is_he_supported:1;
+    u32 reserved:30;
 
 } NanCapabilitiesRspMsg, *pNanCapabilitiesRspMsg;
 
@@ -1958,9 +1971,6 @@ struct PACKED nikKDE {
     u8 nik_data[0];
 };
 
-struct PACKED nikLifetime {
-    u32 lifetime;
-};
 
 struct PACKED igtkKDE {
         u8 keyid[2];
@@ -1975,12 +1985,9 @@ struct PACKED bigtkKDE {
         u8 bigtk[0];
 };
 
-struct PACKED igtkLifetime {
-       u32 lifetime;
-};
-
-struct PACKED bigtkLifetime {
-       u32 lifetime;
+struct PACKED nanKeyLifetimeKDE {
+    u16 key_type_bitmap;
+    u32 lifetime;
 };
 
 typedef struct {
@@ -2097,7 +2104,11 @@ struct nan_pairing_peer_info {
     u16 dcea_cap_info;
     /* publisher ID in CSIA attribute */
     u8 csia_pub_id;
+    /* capability info in CSIA attribute */
+    u8 csia_cap_info;
     struct pasn_auth_frame *frame;
+    /* dialog token in bootstrapping request/response */
+    u8 dialog_token;
 };
 
 struct wpa_secure_nan {
@@ -2141,6 +2152,12 @@ struct wpa_secure_nan {
     u8 pn_bitmap;
     /* peer for which skda send is pending */
     struct nan_pairing_peer_info* pending_peer;
+    /* device group keys capability info*/
+    u8 csia_cap_info;
+    /* dialog token in bootstrapping request */
+    u8 dialog_token;
+    /* instance is in publisher role */
+    bool is_publish;
 };
 
 /***************************************************
@@ -2222,9 +2239,11 @@ const u8 *nan_attr_from_nan_ie(const u8 *nan_ie, enum nan_attr_id attr);
 const u8 *nan_get_attr_from_ies(const u8 *ies, size_t ies_len,
                                 enum nan_attr_id attr);
 void nan_pairing_add_setup_ies(struct wpa_secure_nan *secure_nan,
-                               struct pasn_data *pasn, int peer_role);
+                               struct pasn_data *pasn, int peer_role,
+                               u32 cipher);
 void nan_pairing_add_verification_ies(struct wpa_secure_nan *secure_nan,
-                                      struct pasn_data *pasn, int peer_role);
+                                      struct pasn_data *pasn, int peer_role,
+                                      u32 cipher);
 int nan_pasn_kdk_to_ndp_pmk(const u8 *kdk, size_t kdk_len, const u8 *spa,
                             const u8 *bssid, u8 *ndp_pmk, u32 *ndp_pmk_len);
 int nan_pasn_kdk_to_opportunistic_npk(const u8 *kdk, size_t kdk_len,
@@ -2263,7 +2282,7 @@ int nan_pairing_responder_pmksa_cache_add(struct rsn_pmksa_cache *pmksa,
 int nan_pairing_responder_pmksa_cache_get(struct rsn_pmksa_cache *pmksa,
                                           u8 *bssid, u8 *pmkid);
 void nan_pairing_responder_pmksa_cache_flush(struct rsn_pmksa_cache *pmksa);
-void nan_pairing_derive_grp_keys(hal_info *info, u8* addr, u32 cipher_caps);
+void nan_pairing_derive_grp_keys(hal_info *info, u8* addr, u8 cipher_caps);
 bool is_nira_present(struct wpa_secure_nan *secure_nan, const u8 *frame,
                      size_t len);
 struct nan_pairing_peer_info*
@@ -2280,6 +2299,7 @@ int nan_pairing_prepare_skda_data(wifi_interface_handle iface);
 wifi_error nan_group_key_pn_request(transaction_id id,
                                     wifi_interface_handle iface,
                                     u32 key_index);
+u16 get_matching_bootstrap_method(u16 method);
 
 #ifdef __cplusplus
 }
