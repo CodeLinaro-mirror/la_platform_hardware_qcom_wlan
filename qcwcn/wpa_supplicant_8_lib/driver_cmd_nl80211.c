@@ -6599,7 +6599,8 @@ static int wpa_driver_set_ul_mu_cfg(struct i802_bss *bss, char *cmd)
 		ulmu = get_u8_from_string(cmd, &ret);
 		if (ret || ulmu > 1) {
 			wpa_printf(MSG_ERROR, "set_ul_mu_cfg: input error");
-			return -EINVAL;
+			ret = -EINVAL;
+			goto fail;
 		}
 		if (ulmu)
 			val = QCA_UL_MU_ENABLE;
@@ -6757,9 +6758,9 @@ static int wpa_driver_ps_config_cmd(struct i802_bss *bss, char *cmd)
 			wpa_printf(MSG_ERROR, "Invalid latency_tolerance value");
 			return -EINVAL;
 		}
-		if ((latency_tolerance > 200) || (latency_tolerance < 30)) {
+		if ((latency_tolerance > 1000) || (latency_tolerance < 10)) {
 			wpa_printf(MSG_ERROR,
-				   "latency_tolerance must be within the range of 30 to 200");
+				   "latency_tolerance must be within the range of 10 to 1000");
 			return -EINVAL;
 		}
 	}
@@ -7205,6 +7206,10 @@ int wpa_driver_nl80211_driver_cmd(void *priv, char *cmd, char *buf,
 	} else if (os_strncasecmp(cmd, "SPATIAL_REUSE ", 14) == 0) {
 		cmd += 14;
 		return wpa_driver_sr_cmd(priv, cmd, buf, buf_len);
+	} else if (os_strncasecmp(cmd, "OEM_DATA ", 9) == 0) {
+		/* DRIVER OEM_DATA xxx */
+		cmd += 9;
+		return wpa_driver_oem_data_cmd(priv, cmd, buf, buf_len);
 	} else if (os_strncasecmp(cmd, "SET_ELNABYPASS_MODE ", 20) == 0) {
 		cmd += 20;
 		return wpa_driver_set_elnabypass_cmd(priv, cmd, buf, buf_len);

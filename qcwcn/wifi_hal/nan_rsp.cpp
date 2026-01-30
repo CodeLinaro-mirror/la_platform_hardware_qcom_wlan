@@ -336,6 +336,8 @@ struct errorCode errorCodeTranslation[] = {
      "NAN is Already enabled"},
     {NAN_STATUS_FOLLOWUP_QUEUE_FULL, NAN_I_STATUS_FOLLOWUP_QUEUE_FULL,
      "Follow-up queue full"},
+    {NAN_STATUS_INTERNAL_FAILURE, NAN_I_STATUS_IC_MODE_FAIL,
+     "Instant Mode failed"},
 
     {NAN_STATUS_UNSUPPORTED_CONCURRENCY_NAN_DISABLED, NDP_I_UNSUPPORTED_CONCURRENCY,
      "Unsupported Concurrency"},
@@ -515,6 +517,8 @@ int NanCommand::getNanResponse(transaction_id *id, NanResponseMsg *pRsp)
             pRsp->response_type = NAN_RESPONSE_PUBLISH_CANCEL;
             pRsp->body.publish_response.publish_id = \
                 pFwRsp->fwHeader.handle;
+            if (info && info->secure_nan)
+                info->secure_nan->is_publish = false;
             break;
         }
         case NAN_MSG_ID_PUBLISH_SERVICE_RSP:
@@ -526,8 +530,10 @@ int NanCommand::getNanResponse(transaction_id *id, NanResponseMsg *pRsp)
             pRsp->response_type = NAN_RESPONSE_PUBLISH;
             pRsp->body.publish_response.publish_id = \
                 pFwRsp->fwHeader.handle;
-            if (info && info->secure_nan)
+            if (info && info->secure_nan) {
                 info->secure_nan->pub_sub_id = pFwRsp->fwHeader.handle;
+                info->secure_nan->is_publish = true;
+            }
             break;
         }
         case NAN_MSG_ID_SUBSCRIBE_SERVICE_RSP:
@@ -706,7 +712,8 @@ int NanCommand::getNanResponse(transaction_id *id, NanResponseMsg *pRsp)
                   "Max APP info len: %d, Max queued transmit followup msgs: %d,\n"
                   "NDP supported bands: %d, cipher suites: %d, Max scid len %d,\n"
                   "NDP security supported: %s, Max SDEA SSI len: %d, Max subscribe addr: %d,\n"
-                  "Pairing supported: %s, FollowupRxsupport: %s",
+                  "Pairing supported: %s, Periodic Ranging Supported: %s,\n"
+                  "FollowupRxsupport: %s",
                   pRsp->body.nan_capabilities.max_concurrent_nan_clusters,
                   pRsp->body.nan_capabilities.max_publishes,
                   pRsp->body.nan_capabilities.max_subscribes,
@@ -727,6 +734,7 @@ int NanCommand::getNanResponse(transaction_id *id, NanResponseMsg *pRsp)
                   pRsp->body.nan_capabilities.max_sdea_service_specific_info_len,
                   pRsp->body.nan_capabilities.max_subscribe_address,
                   pRsp->body.nan_capabilities.is_pairing_supported ? "yes" : "no",
+                  pRsp->body.nan_capabilities.is_periodic_ranging_supported ? "yes" : "no",
                   pFwRsp->nan_followup_rx_forward_supported ? "yes" : "no");
 
             if (capab_len <= offsetof(NanCapabilitiesRspMsg, nan_group_mfp_cap)
@@ -741,13 +749,17 @@ int NanCommand::getNanResponse(transaction_id *id, NanResponseMsg *pRsp)
                        get_wifi_rtt_bw(pFwRsp->maxSupportedBandWidth);
             pRsp->body.nan_capabilities.num_rx_chains_supported = \
                        pFwRsp->numRxChainsSupported;
+            pRsp->body.nan_capabilities.is_instant_mode_supported = \
+                       pFwRsp->nan_instant_mode_supported;
 
             ALOGI("Nan Capabilities: 6g supported: %s, HE supported: %s\n"
-                  "supported bw: %d, num_rx_chains_supported: %d",
+                  "supported bw: %d, num_rx_chains_supported: %d\n"
+                  "Instant mode supported: %s",
                   pRsp->body.nan_capabilities.is_6g_supported ? "yes" : "no",
                   pRsp->body.nan_capabilities.is_he_supported ? "yes" : "no",
                   pRsp->body.nan_capabilities.supported_bw,
-                  pRsp->body.nan_capabilities.num_rx_chains_supported);
+                  pRsp->body.nan_capabilities.num_rx_chains_supported,
+                  pRsp->body.nan_capabilities.is_instant_mode_supported ? "yes" : "no");
 
             break;
         }
@@ -1146,4 +1158,11 @@ int NanCommand::handleNdpResponse(NanResponseType ndpCmdType,
         (*mHandler.NotifyResponse)(id, &rsp_data);
     }
     return WIFI_SUCCESS;
+}
+
+int NanCommand::sendNanResponse(transaction_id id, NanResponseMsg *rsp_data)
+{
+    if (mHandler.NotifyResponse)
+        (*mHandler.NotifyResponse)(id, rsp_data);
+    return 0;
 }
