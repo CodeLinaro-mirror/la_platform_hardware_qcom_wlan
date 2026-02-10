@@ -1632,6 +1632,9 @@ wifi_error nan_data_request_initiator(transaction_id id,
                                     &msg->key_info.body.pmk_info.pmk_len);
 
             msg->key_info.key_type = NAN_SECURITY_KEY_INPUT_PMK;
+            if (!msg->csia_capabilities)
+                msg->csia_capabilities = 0x04;
+            msg->gtk_protection = 1;
         }
     }
 #endif
@@ -1847,6 +1850,9 @@ wifi_error nan_data_indication_response(transaction_id id,
                                     &msg->key_info.body.pmk_info.pmk_len);
 
             msg->key_info.key_type = NAN_SECURITY_KEY_INPUT_PMK;
+            if (!msg->csia_capabilities)
+                msg->csia_capabilities = 0x04;
+            msg->gtk_protection = 1;
         } else {
             ALOGE("%s: Entry not found in cache for ADDR=" MACSTR,
                   __FUNCTION__, MAC2STR(msg->peer_disc_mac_addr));
