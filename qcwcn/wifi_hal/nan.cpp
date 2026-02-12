@@ -266,6 +266,8 @@ wifi_error nan_publish_request(transaction_id id,
         info->secure_nan->supported_bootstrap =
               msg->nan_pairing_config.supported_bootstrapping_methods;
 #ifdef WPA_PASN_LIB
+        if (!msg->cipher_capabilities && msg->nan_pairing_config.enable_pairing_setup)
+            msg->cipher_capabilities = 0x4;
         if (!info->secure_nan->dev_grp_keys)
             nan_pairing_derive_grp_keys(info, t_nanCommand->getNmi(),
                                         msg->cipher_capabilities);
@@ -400,6 +402,8 @@ wifi_error nan_subscribe_request(transaction_id id,
         info->secure_nan->supported_bootstrap =
               msg->nan_pairing_config.supported_bootstrapping_methods;
 #ifdef WPA_PASN_LIB
+        if (!msg->cipher_capabilities && msg->nan_pairing_config.enable_pairing_setup)
+            msg->cipher_capabilities = 0x4;
         if (!info->secure_nan->dev_grp_keys)
             nan_pairing_derive_grp_keys(info, t_nanCommand->getNmi(),
                                         msg->cipher_capabilities);
@@ -657,7 +661,9 @@ wifi_error nan_bootstrapping_request(transaction_id id,
     if (ret != WIFI_SUCCESS)
         goto cleanup;
 
-    ret = nanCommand->putNanBootstrappingReq(id, msg, pub_sub_id);
+    info->secure_nan->dialog_token++;
+    ret = nanCommand->putNanBootstrappingReq(id, msg, pub_sub_id,
+                                             info->secure_nan->dialog_token);
     if (ret != WIFI_SUCCESS) {
         ALOGE("%s: putNanBootstrappingReq Error:%d", __FUNCTION__, ret);
         goto cleanup;
@@ -674,6 +680,7 @@ wifi_error nan_bootstrapping_request(transaction_id id,
         entry->pub_sub_id = pub_sub_id;
         entry->requestor_instance_id = msg->requestor_instance_id;
         info->secure_nan->bootstrapping_id++;
+        entry->dialog_token = info->secure_nan->dialog_token;
         entry->bootstrapping_instance_id = info->secure_nan->bootstrapping_id;
         entry->peer_role = SECURE_NAN_BOOTSTRAPPING_RESPONDER;
     }
@@ -779,7 +786,9 @@ wifi_error nan_transmit_followup_request(transaction_id id,
     interface_info *ifaceInfo = getIfaceInfo(iface);
     wifi_handle wifiHandle = getWifiHandle(iface);
     hal_info *info = getHalInfo(wifiHandle);
+    struct nan_pairing_peer_info *entry;
     NanSharedKeyRequest key;
+    u16 pub_sub_id = 0;
 
     if (info == NULL) {
         ALOGE("%s: Error hal_info NULL", __FUNCTION__);
@@ -816,6 +825,30 @@ wifi_error nan_transmit_followup_request(transaction_id id,
     if (ret != WIFI_SUCCESS) {
         ALOGE("%s: putNanTransmitFollowup Error:%d", __FUNCTION__, ret);
         goto cleanup;
+    }
+
+    if (info->secure_nan) {
+        pub_sub_id = msg->publish_subscribe_id & 0xFF;
+        entry = nan_pairing_get_peer_from_list(info->secure_nan, msg->addr);
+        if (entry) {
+            if (pub_sub_id && entry->pub_sub_id != pub_sub_id) {
+                ALOGI("Update previous pub sub id: %d with new id: %d",
+                      entry->pub_sub_id, pub_sub_id);
+                entry->pub_sub_id = pub_sub_id;
+            }
+            if (msg->requestor_instance_id &&
+                entry->requestor_instance_id != msg->requestor_instance_id) {
+                ALOGI("Update previous requestor instance id: %d with new id: %d",
+                      entry->requestor_instance_id, msg->requestor_instance_id);
+                entry->requestor_instance_id = msg->requestor_instance_id;
+            }
+        } else {
+            entry = nan_pairing_add_peer_to_list(info->secure_nan, msg->addr);
+            if (entry) {
+                entry->pub_sub_id = pub_sub_id;
+                entry->requestor_instance_id = msg->requestor_instance_id;
+            }
+        }
     }
 
     ret = nanCommand->requestEvent();

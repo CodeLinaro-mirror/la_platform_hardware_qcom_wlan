@@ -289,6 +289,7 @@ wifi_error wifi_disable_next_cac(wifi_interface_handle handle);
 wifi_error wifi_get_supported_radio_combinations_matrix(
         wifi_handle handle, u32 max_size, u32 *size,
         wifi_radio_combination_matrix *radio_combination_matrix);
+int is_feature_supported(wifi_interface_handle iface_handle, int feature);
 // some common macros
 
 #define min(x, y)       ((x) < (y) ? (x) : (y))
