@@ -2637,9 +2637,19 @@ void nan_pairing_set_password(struct nan_pairing_peer_info *peer, u8 *passphrase
     }
     strlcpy(peer->passphrase, reinterpret_cast<const char *> (passphrase),
             len + 1);
+
+#ifdef CONFIG_ANDROID_17_SUPPORT
+    const u8 *pwd_id = (const u8 *)peer->sae_password_id;
+    size_t pwd_id_len = pwd_id ? strlen((const char *)pwd_id) : 0;
+    pt = sae_derive_pt(NULL, pairing_ssid, pairing_ssid_len,
+                       (const u8 *)passphrase, len,
+                       pwd_id, pwd_id_len);
+#else
     pt = sae_derive_pt(NULL, pairing_ssid, pairing_ssid_len,
                        (const u8 *)passphrase, len,
                        peer->sae_password_id);
+#endif
+
     pasn_set_pt(peer->pasn, pt);
     /* Set passpharse for Pairing Responder to validate PASN auth1 frame*/
     pasn_set_password(peer->pasn, peer->passphrase);
