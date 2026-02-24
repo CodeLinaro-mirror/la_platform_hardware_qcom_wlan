@@ -59,6 +59,7 @@ soong_config_module_type {
     bool_variables: [
         "mac_privacy_logging", // CONFIG_MAC_PRIVACY_LOGGING
         "target_supports_wearables", // TARGET_SUPPORTS_WEARABLES
+        "android_17_support", // CONFIG_ANDROID_17_SUPPORT
     ],
     variables: [
         "libpasn_support", //$(wildcard external/wpa_supplicant_8/src/pasn/pasn_common.c)
@@ -108,6 +109,9 @@ wifi_hal_cc_defaults {
                 header_libs: ["wpa_supplicant_headers"],
                 shared_libs: ["libpasn"],
             },
+        },
+        android_17_support: {
+            cflags: ["-DCONFIG_ANDROID_17_SUPPORT"],
         },
     },
 }
