@@ -158,6 +158,9 @@ void nan_ssi_cache_store(u16 subscribe_id, transaction_id trans_id,
         if (node) {
             node->subscribe_id = subscribe_id;
             node->valid = 1;
+        } else {
+            ALOGE("%s: node not found trans_id %u, subscribe_id %u",
+                  __func__, trans_id, subscribe_id);
         }
     }
 
@@ -179,7 +182,7 @@ u16 nan_ssi_cache_get(u16 subscribe_id, u8 *buf, u16 buf_len)
         memcpy(buf, node->ssi, len);
     } else {
         ALOGE("%s: SSI node not found, sub_id : %u, buf_len %u, ssi_len %u",
-              __func__, subscribe_id, buf_len, node->ssi_len);
+              __func__, subscribe_id, buf_len, node ? node->ssi_len : 0);
     }
 
     pthread_mutex_unlock(&g_nan_ssi_lock);
