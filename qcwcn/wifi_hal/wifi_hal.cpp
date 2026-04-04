@@ -1679,6 +1679,8 @@ static void internal_cleaned_up_handler(wifi_handle handle)
     wifi_cleaned_up_handler cleaned_up_handler = info->cleaned_up_handler;
     wifihal_mon_sock_t *reg, *tmp;
 
+    nan_ssi_cache_clear_all();
+
     if (info->cmd_sock != 0) {
         nl_socket_free(info->cmd_sock);
         nl_socket_free(info->event_sock);
@@ -3767,17 +3769,16 @@ public:
                     struct nlattr *nl_limit, *nl_mode;
                     int err, rem_limit, rem_mode, j = 0;
                     static struct nla_policy
-                    iface_combination_policy[NUM_NL80211_IFACE_COMB] = {
-                        [NL80211_IFACE_COMB_LIMITS] = { .type = NLA_NESTED },
-                        [NL80211_IFACE_COMB_MAXNUM] = { .type = NLA_U32 },
-                        [NL80211_IFACE_COMB_STA_AP_BI_MATCH] = { .type = NLA_FLAG },
-                        [NL80211_IFACE_COMB_NUM_CHANNELS] = { .type = NLA_U32 },
-                        [NL80211_IFACE_COMB_RADAR_DETECT_WIDTHS] = { .type = NLA_U32 },
-                    },
-                    iface_limit_policy[NUM_NL80211_IFACE_LIMIT] = {
-                        [NL80211_IFACE_LIMIT_TYPES] = { .type = NLA_NESTED },
-                        [NL80211_IFACE_LIMIT_MAX] = { .type = NLA_U32 },
-                    };
+                        iface_combination_policy[NUM_NL80211_IFACE_COMB],
+                        iface_limit_policy[NUM_NL80211_IFACE_LIMIT];
+
+                    iface_combination_policy[NL80211_IFACE_COMB_LIMITS].type = NLA_NESTED;
+                    iface_combination_policy[NL80211_IFACE_COMB_MAXNUM].type = NLA_U32;
+                    iface_combination_policy[NL80211_IFACE_COMB_STA_AP_BI_MATCH].type = NLA_FLAG;
+                    iface_combination_policy[NL80211_IFACE_COMB_NUM_CHANNELS].type = NLA_U32;
+                    iface_combination_policy[NL80211_IFACE_COMB_RADAR_DETECT_WIDTHS].type = NLA_U32;
+                    iface_limit_policy[NL80211_IFACE_LIMIT_TYPES].type = NLA_NESTED;
+                    iface_limit_policy[NL80211_IFACE_LIMIT_MAX].type = NLA_U32;
 
                     err = nla_parse_nested(tb_comb, MAX_NL80211_IFACE_COMB,
                                            nl_combi, iface_combination_policy);
