@@ -1039,18 +1039,23 @@ enum nan_attr_id {
 #define NAN_ENCRYPT_KEY_DATA   BIT(12)
 #define NAN_VENDOR_ATTR_TYPE   0xdd
 
-#define NAN_KDE_TYPE_IGTK                 0x02
-#define NAN_KDE_TYPE_BIGTK                0x03
-#define NAN_KDE_TYPE_IGTK_LIFETIME        0x06
-#define NAN_KDE_TYPE_BIGTK_LIFETIME       0x07
+#define NAN_KDE_TYPE_IGTK                 0x09
+#define NAN_KDE_TYPE_BIGTK                0x0E
 #define NAN_KDE_TYPE_NIK                  0x24
-#define NAN_KDE_TYPE_NIK_LIFETIME         0x25
+#define NAN_KDE_TYPE_KEY_LIFETIME         0x25
 
 #define NAN_IGTK_KEY_IDX                   4
 #define NAN_BIGTK_KEY_IDX                  6
 
 #define NAN_PN_REQ_BITMAP_IGTK             BIT(0)
 #define NAN_PN_REQ_BITMAP_BIGTK            BIT(1)
+
+#define NAN_KEY_TYPE_BITMAP_GTK            BIT(0)
+#define NAN_KEY_TYPE_BITMAP_IGTK           BIT(1)
+#define NAN_KEY_TYPE_BITMAP_BIGTK          BIT(2)
+#define NAN_KEY_TYPE_BITMAP_NIK            BIT(3)
+#define NAN_KEY_TYPE_BITMAP_NDTK           BIT(4)
+#define NAN_KEY_TYPE_BITMAP_NMTK           BIT(5)
 
 /* sub attribute iteration helpers */
 #define for_each_nan_subattr(_subattr, _data, _datalen)                    \
@@ -1553,6 +1558,14 @@ typedef struct PACKED
     u32 reserved:9;
 } NanCapabilitiesRspMsg, *pNanCapabilitiesRspMsg;
 
+/* SSI cache helpers */
+void nan_ssi_cache_store(u16 subscribe_id, transaction_id trans_id,
+                         const u8 *ssi, u16 ssi_len);
+u16 nan_ssi_cache_get(u16 subscribe_id, u8 *buf, u16 buf_len);
+void nan_ssi_cache_clear(u16 subscribe_id);
+void nan_ssi_cache_clear_by_trans(transaction_id trans_id);
+void nan_ssi_cache_clear_all(void);
+
 /* NAN Self Transmit Followup */
 typedef struct PACKED
 {
@@ -1987,9 +2000,6 @@ struct PACKED nikKDE {
     u8 nik_data[0];
 };
 
-struct PACKED nikLifetime {
-    u32 lifetime;
-};
 
 struct PACKED igtkKDE {
         u8 keyid[2];
@@ -2004,12 +2014,9 @@ struct PACKED bigtkKDE {
         u8 bigtk[0];
 };
 
-struct PACKED igtkLifetime {
-       u32 lifetime;
-};
-
-struct PACKED bigtkLifetime {
-       u32 lifetime;
+struct PACKED nanKeyLifetimeKDE {
+    u16 key_type_bitmap;
+    u32 lifetime;
 };
 
 typedef struct {
@@ -2129,6 +2136,8 @@ struct nan_pairing_peer_info {
     /* capability info in CSIA attribute */
     u8 csia_cap_info;
     struct pasn_auth_frame *frame;
+    /* dialog token in bootstrapping request/response */
+    u8 dialog_token;
 };
 
 struct wpa_secure_nan {
@@ -2174,6 +2183,8 @@ struct wpa_secure_nan {
     struct nan_pairing_peer_info* pending_peer;
     /* device group keys capability info*/
     u8 csia_cap_info;
+    /* dialog token in bootstrapping request */
+    u8 dialog_token;
 };
 
 /***************************************************
