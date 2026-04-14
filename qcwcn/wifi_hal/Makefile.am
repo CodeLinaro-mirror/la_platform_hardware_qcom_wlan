@@ -3,7 +3,8 @@ AM_CPPFLAGS = -Wall \
              $(DIAG_CFLAGS) \
              -I$(srcdir) \
              -I$(srcdir)/vendor_nan \
-             -I$(srcdir)/wifi_hal_ctrl
+             -I$(srcdir)/wifi_hal_ctrl \
+             -DWPA_PASN_LIB
 
 if DEBUG
 AM_CPPFLAGS += DDEBUG
@@ -63,6 +64,6 @@ library_includedir = $(pkgincludedir)
 library_include_HEADERS = $(h_sources)
 
 libwifihalqcom_la_SOURCES = $(c_sources) $(h_sources)
-libwifihalqcom_la_LIBADD = ${requiredlibs}
+libwifihalqcom_la_LIBADD = ${requiredlibs} -lpasn
 libwifihalqcom_la_CPPFLAGS =$(AM_CPPFLAGS)
 lib_LTLIBRARIES = libwifihalqcom.la

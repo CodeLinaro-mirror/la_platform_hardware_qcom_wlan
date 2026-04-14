@@ -89,6 +89,18 @@ AC_ARG_WITH([supplicant-header-includes],
      [CPPFLAGS="$CPPFLAGS -idirafter $withval"],
      supplicant-header-includes=no)
 
+AC_ARG_WITH([supplicant-utils-includes],
+      AC_HELP_STRING([--with_supplicant-utils-includes=@<:@dir@:>@],
+         [Specify the location of the supplicant header includes]),
+      [CPPFLAGS="$CPPFLAGS -idirafter $withval"],
+      with_supplicant-utils-includes=no)
+
+AC_ARG_WITH([supplicant-includes],
+      AC_HELP_STRING([--with_supplicant-includes=@<:@dir@:>@],
+         [Specify the location of the supplicant header includes]),
+      [CPPFLAGS="$CPPFLAGS -idirafter $withval"],
+      with_supplicant-includes=no)
+
 AC_ARG_WITH([cld80211-lib-includes],
      AC_HELP_STRING([--with-cld80211-lib-includes=@<:@dir@:>@],
         [Specify the location of the cld80211 lib headers]),
