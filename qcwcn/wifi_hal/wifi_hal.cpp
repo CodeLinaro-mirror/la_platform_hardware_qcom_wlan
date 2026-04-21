@@ -1842,7 +1842,8 @@ static int validate_genl_msg(nlmsghdr *nlh, int family, int cmd)
       return -1;
     }
     if(hdr->cmd == NL80211_CMD_FRAME ||
-       hdr->cmd == NL80211_CMD_REGISTER_ACTION)
+       hdr->cmd == NL80211_CMD_REGISTER_ACTION ||
+       hdr->cmd == NL80211_CMD_TRIGGER_SCAN)
     {
       ALOGV("%s: FAMILY ID : %d ,NL CMD : %d received", __FUNCTION__,
              nlh->nlmsg_type, hdr->cmd);
