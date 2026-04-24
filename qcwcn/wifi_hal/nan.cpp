@@ -661,7 +661,9 @@ wifi_error nan_bootstrapping_request(transaction_id id,
     if (ret != WIFI_SUCCESS)
         goto cleanup;
 
-    ret = nanCommand->putNanBootstrappingReq(id, msg, pub_sub_id);
+    info->secure_nan->dialog_token++;
+    ret = nanCommand->putNanBootstrappingReq(id, msg, pub_sub_id,
+                                             info->secure_nan->dialog_token);
     if (ret != WIFI_SUCCESS) {
         ALOGE("%s: putNanBootstrappingReq Error:%d", __FUNCTION__, ret);
         goto cleanup;
@@ -678,6 +680,7 @@ wifi_error nan_bootstrapping_request(transaction_id id,
         entry->pub_sub_id = pub_sub_id;
         entry->requestor_instance_id = msg->requestor_instance_id;
         info->secure_nan->bootstrapping_id++;
+        entry->dialog_token = info->secure_nan->dialog_token;
         entry->bootstrapping_instance_id = info->secure_nan->bootstrapping_id;
         entry->peer_role = SECURE_NAN_BOOTSTRAPPING_RESPONDER;
     }
@@ -1587,10 +1590,15 @@ wifi_error nan_data_request_initiator(transaction_id id,
 
 #ifdef WPA_PASN_LIB
     if (info && info->secure_nan) {
+        struct nan_pairing_peer_info *peer;
+
+        peer = nan_pairing_get_peer_from_list(info->secure_nan,
+                                              msg->peer_disc_mac_addr);
         entry = ptksa_cache_get(info->secure_nan->ptksa,
                                 msg->peer_disc_mac_addr, WPA_CIPHER_NONE);
-        if (entry) {
-            msg->cipher_type = NAN_CIPHER_SUITE_SHARED_KEY_128_MASK;
+        if (entry && peer && peer->is_paired) {
+            /* Use cipher_type from pairing peer info */
+            msg->cipher_type = peer->cipher_type;
 
             nan_pasn_kdk_to_ndp_pmk(entry->ptk.kdk, entry->ptk.kdk_len,
                                     entry->own_addr, entry->addr,
@@ -1811,10 +1819,16 @@ wifi_error nan_data_indication_response(transaction_id id,
             if (peer)
                 memcpy(msg->peer_disc_mac_addr, peer->bssid, NAN_MAC_ADDR_LEN);
         }
+
+        if (!peer)
+            peer = nan_pairing_get_peer_from_list(info->secure_nan,
+                                                  msg->peer_disc_mac_addr);
+
         entry = ptksa_cache_get(info->secure_nan->ptksa,
                                 msg->peer_disc_mac_addr, WPA_CIPHER_NONE);
-        if (entry) {
-            msg->cipher_type = NAN_CIPHER_SUITE_SHARED_KEY_128_MASK;
+        if (entry && peer && peer->is_paired) {
+            /* Use cipher_type from pairing peer info */
+            msg->cipher_type = peer->cipher_type;
 
             nan_pasn_kdk_to_ndp_pmk(entry->ptk.kdk, entry->ptk.kdk_len,
                                     entry->addr, entry->own_addr,

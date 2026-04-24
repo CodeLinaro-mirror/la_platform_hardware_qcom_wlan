@@ -515,6 +515,8 @@ int NanCommand::getNanResponse(transaction_id *id, NanResponseMsg *pRsp)
             pRsp->response_type = NAN_RESPONSE_PUBLISH_CANCEL;
             pRsp->body.publish_response.publish_id = \
                 pFwRsp->fwHeader.handle;
+            if (info && info->secure_nan)
+                info->secure_nan->is_publish = false;
             break;
         }
         case NAN_MSG_ID_PUBLISH_SERVICE_RSP:
@@ -526,8 +528,10 @@ int NanCommand::getNanResponse(transaction_id *id, NanResponseMsg *pRsp)
             pRsp->response_type = NAN_RESPONSE_PUBLISH;
             pRsp->body.publish_response.publish_id = \
                 pFwRsp->fwHeader.handle;
-            if (info && info->secure_nan)
+            if (info && info->secure_nan) {
                 info->secure_nan->pub_sub_id = pFwRsp->fwHeader.handle;
+                info->secure_nan->is_publish = true;
+            }
             break;
         }
         case NAN_MSG_ID_SUBSCRIBE_SERVICE_RSP:
@@ -539,6 +543,12 @@ int NanCommand::getNanResponse(transaction_id *id, NanResponseMsg *pRsp)
             pRsp->response_type = NAN_RESPONSE_SUBSCRIBE;
             pRsp->body.subscribe_response.subscribe_id = \
                 pFwRsp->fwHeader.handle;
+            if (pFwRsp->status == NAN_STATUS_SUCCESS) {
+                nan_ssi_cache_store((u16)pFwRsp->fwHeader.handle,
+                                    *id, NULL, 0);
+            } else {
+                nan_ssi_cache_clear_by_trans(*id);
+            }
             if (info && info->secure_nan)
                 info->secure_nan->pub_sub_id = pFwRsp->fwHeader.handle;
         }
