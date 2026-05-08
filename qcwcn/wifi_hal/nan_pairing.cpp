@@ -1484,11 +1484,21 @@ wifi_error nan_get_shared_key_descriptor(hal_info *info, const u8 *addr,
     shared_key_desc->attrID = NAN_SHARED_KEY_ATTR_ID;
     shared_key_desc->length = buf_len - offsetof(struct sharedKeyDesc,
                                                  publishID);
-    shared_key_desc->publishID = secure_nan->pub_sub_id;
+
+    if (secure_nan->is_publish)
+        shared_key_desc->publishID = secure_nan->pub_sub_id;
+    else
+        shared_key_desc->publishID = peer->requestor_instance_id >> 24;
+
     pos += sizeof(struct sharedKeyDesc);
 
     key_desc = (struct keyDescriptor *)pos;
-    WPA_PUT_BE16((u8 *)&key_desc->keyInfo, NAN_ENCRYPT_KEY_DATA);
+    /* Need to set key descriptor type to 0x2 for EAPOL Key packet */
+    key_desc->descriptorType = 0x02;
+    /* Setting required flags in Keyinfo field */
+    WPA_PUT_BE16((u8 *)&key_desc->keyInfo, (NAN_ENCRYPT_KEY_DATA | NAN_SECURE |
+                                            NAN_INSTALL_KEY | NAN_KEY_ACK |
+                                            NAN_KEY_MIC | NAN_KEY_TYPE));
     WPA_PUT_BE16((u8 *)&key_desc->keyDataLen, key_data_len);
     pos += sizeof(struct keyDescriptor);
 
@@ -2313,7 +2323,8 @@ const u8 *nan_get_attr_from_ies(const u8 *ies, size_t ies_len,
 }
 
 void nan_pairing_add_setup_ies(struct wpa_secure_nan *secure_nan,
-                               struct pasn_data *pasn, int peer_role)
+                               struct pasn_data *pasn, int peer_role,
+                               u32 cipher)
 {
     u8 *pos;
     nan_dcea *dcea;
@@ -2321,6 +2332,8 @@ void nan_pairing_add_setup_ies(struct wpa_secure_nan *secure_nan,
     nan_npba *npba;
     u8 *extra_ies;
     size_t extra_ies_len;
+    struct nan_pairing_peer_info *entry;
+    u16 publish_id;
 
     if (!secure_nan || !pasn) {
         ALOGE("%s: Secure NAN/PASN Null ", __FUNCTION__);
@@ -2339,6 +2352,13 @@ void nan_pairing_add_setup_ies(struct wpa_secure_nan *secure_nan,
     if (!extra_ies) {
         ALOGE("%s: Memory allocation failed", __FUNCTION__);
         return;
+    }
+
+    if (secure_nan->is_publish) {
+        publish_id = secure_nan->pub_sub_id;
+    } else {
+        entry = nan_pairing_add_peer_to_list(secure_nan, pasn->peer_addr);
+        publish_id = entry ? (entry->requestor_instance_id >> 24) : secure_nan->pub_sub_id;
     }
 
     pos = extra_ies;
@@ -2363,11 +2383,14 @@ void nan_pairing_add_setup_ies(struct wpa_secure_nan *secure_nan,
     csia->len = sizeof(nan_csia) - offsetof(nan_csia, caps);
     csia->len += sizeof(nan_csa);
     csia->caps = secure_nan->csia_cap_info;
-    csia->csa[0].cipher = NCS_PK_PASN_128;
-    csia->csa[0].pub_id = secure_nan->pub_sub_id;
+    if (cipher == NAN_CIPHER_SUITE_PUBLIC_KEY_PASN_256_MASK)
+        csia->csa[0].cipher = NCS_PK_PASN_256;
+    else
+        csia->csa[0].cipher = NCS_PK_PASN_128;
+    csia->csa[0].pub_id = publish_id;
     if (peer_role == SECURE_NAN_PAIRING_INITIATOR) {
         csia->csa[1].cipher = NCS_SK_128;
-        csia->csa[1].pub_id = secure_nan->pub_sub_id;
+        csia->csa[1].pub_id = publish_id;
         csia->len += sizeof(nan_csa);
         pos += sizeof(nan_csa);
     }
@@ -2389,7 +2412,8 @@ void nan_pairing_add_setup_ies(struct wpa_secure_nan *secure_nan,
 }
 
 void nan_pairing_add_verification_ies(struct wpa_secure_nan *secure_nan,
-                                      struct pasn_data *pasn, int peer_role)
+                                      struct pasn_data *pasn, int peer_role,
+                                      u32 cipher)
 {
     u8 *pos;
     nan_dcea *dcea;
@@ -2397,6 +2421,8 @@ void nan_pairing_add_verification_ies(struct wpa_secure_nan *secure_nan,
     nan_nira *nira;
     u8 *extra_ies;
     size_t extra_ies_len;
+    struct nan_pairing_peer_info *entry;
+    u16 publish_id;
 
     if (!secure_nan || !pasn || !secure_nan->dev_nik) {
         ALOGE("NAN: NIK not initialized");
@@ -2417,6 +2443,13 @@ void nan_pairing_add_verification_ies(struct wpa_secure_nan *secure_nan,
     if (!extra_ies) {
         ALOGE("%s: Memory allocation failed", __FUNCTION__);
         return;
+    }
+
+    if (secure_nan->is_publish) {
+        publish_id = secure_nan->pub_sub_id;
+    } else {
+        entry = nan_pairing_add_peer_to_list(secure_nan, pasn->peer_addr);
+        publish_id = entry ? (entry->requestor_instance_id >> 24) : secure_nan->pub_sub_id;
     }
 
     pos = extra_ies;
@@ -2441,11 +2474,14 @@ void nan_pairing_add_verification_ies(struct wpa_secure_nan *secure_nan,
     csia->len = sizeof(nan_csia) - offsetof(nan_csia, caps);
     csia->len += sizeof(nan_csa);
     csia->caps = secure_nan->csia_cap_info;
-    csia->csa[0].cipher = NCS_PK_PASN_128;
-    csia->csa[0].pub_id = secure_nan->pub_sub_id;
+    if (cipher == NAN_CIPHER_SUITE_PUBLIC_KEY_PASN_256_MASK)
+        csia->csa[0].cipher = NCS_PK_PASN_256;
+    else
+        csia->csa[0].cipher = NCS_PK_PASN_128;
+    csia->csa[0].pub_id = publish_id;
     if (peer_role == SECURE_NAN_PAIRING_INITIATOR) {
         csia->csa[1].cipher = NCS_SK_128;
-        csia->csa[1].pub_id = secure_nan->pub_sub_id;
+        csia->csa[1].pub_id = publish_id;
         csia->len += sizeof(nan_csa);
         pos += sizeof(nan_csa);
     }
