@@ -228,7 +228,8 @@ wifi_error nan_pairing_indication_response(transaction_id id,
             pasn_set_custom_pmkid(pasn, pmkid);
         }
         // construct wrapped data for csia, nira
-        nan_pairing_add_verification_ies(secure_nan, pasn, peer->peer_role);
+        nan_pairing_add_verification_ies(secure_nan, pasn, peer->peer_role,
+                                         msg->cipher_type);
 
         if (msg->key_info.key_type == NAN_SECURITY_KEY_INPUT_PMK &&
             msg->akm == SAE) {
@@ -264,7 +265,8 @@ wifi_error nan_pairing_indication_response(transaction_id id,
             goto fail;
         }
         // construct wrapped data for dcea, csia, npba
-        nan_pairing_add_setup_ies(secure_nan, pasn, peer->peer_role);
+        nan_pairing_add_setup_ies(secure_nan, pasn, peer->peer_role,
+                                  msg->cipher_type);
     }
 
     if (secure_nan->rsnxe)
@@ -280,6 +282,7 @@ wifi_error nan_pairing_indication_response(transaction_id id,
     pasn_set_responder_pmksa(pasn, secure_nan->responder_pmksa);
     peer->trans_id = id;
     peer->trans_id_valid = true;
+    peer->cipher_type = msg->cipher_type;
 
     ret = handle_auth_pasn_1(pasn, secure_nan->own_addr, (u8 *)mgmt->sa, mgmt,
                              peer->frame->len, reject);
