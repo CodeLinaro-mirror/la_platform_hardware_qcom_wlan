@@ -54,7 +54,7 @@
 #include <hardware_legacy/wifi_hal.h>
 #include "nan_i.h"
 #include "nancommand.h"
-#include <inttypes.h>
+#include <errno.h>
 
 //Function which calls the necessaryIndication callback
 //based on the indication type
