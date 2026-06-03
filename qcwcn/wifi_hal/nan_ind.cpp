@@ -54,7 +54,7 @@
 #include <hardware_legacy/wifi_hal.h>
 #include "nan_i.h"
 #include "nancommand.h"
-#include <errno.h>
+#include <inttypes.h>
 
 //Function which calls the necessaryIndication callback
 //based on the indication type
@@ -864,7 +864,7 @@ int NanCommand::handleNanSharedKeyDescIndication()
                pasn_get_pmk_len(pasn));
         evt.npk_security_association.npk.pmk_len = pasn_get_pmk_len(pasn);
     } else {
-        ALOGE("%s: Invalid pmk len: %d", __FUNCTION__, pasn_get_pmk_len(pasn));
+        ALOGE("%s: Invalid pmk len: %zu", __FUNCTION__, pasn_get_pmk_len(pasn));
     }
     wpa_pasn_reset(pasn);
     handleNanPairingConfirm(&evt);
