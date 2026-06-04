@@ -260,6 +260,9 @@ struct csi_global_params {
 	enum csi_state current_state;
 	char connected_bssid[MAC_ADDR_LEN];
 	int transport_mode;
+	int nss;
+	int bw;
+	int fixed_agc;
 };
 
 static struct csi_global_params g_csi_param = {0};
@@ -2356,7 +2359,8 @@ static int wpa_driver_send_get_scan_cmd(struct i802_bss *bss, int *status)
 }
 
 static int wpa_driver_start_csi_capture(struct i802_bss *bss, int *status,
-					int transport_mode, struct csi_frame_mask *frame_mask)
+					int transport_mode, struct csi_frame_mask *frame_mask,
+					int nss, int bw, int fixed_agc)
 {
 	struct wpa_driver_nl80211_data *drv = bss->drv;
 	struct nl_msg *nlmsg;
@@ -2423,6 +2427,20 @@ static int wpa_driver_start_csi_capture(struct i802_bss *bss, int *status,
 
 	if (nla_put_u32(nlmsg, QCA_WLAN_VENDOR_ATTR_PEER_CFR_GROUP_NUMBER,
 			CSI_DEFAULT_GROUP_ID)) {
+		nlmsg_free(nlmsg);
+		return WPA_DRIVER_OEM_STATUS_FAILURE;
+	}
+
+	if (nss != -1 && nla_put_u32(nlmsg, QCA_WLAN_VENDOR_ATTR_PEER_CFR_GROUP_NSS, nss)) {
+		nlmsg_free(nlmsg);
+		return WPA_DRIVER_OEM_STATUS_FAILURE;
+	}
+	if (bw != -1 && nla_put_u32(nlmsg, QCA_WLAN_VENDOR_ATTR_PEER_CFR_GROUP_BW, bw)) {
+		nlmsg_free(nlmsg);
+		return WPA_DRIVER_OEM_STATUS_FAILURE;
+	}
+
+	if (fixed_agc == 1 && nla_put_flag(nlmsg, QCA_WLAN_VENDOR_ATTR_PEER_CFR_FIXED_AGC)) {
 		nlmsg_free(nlmsg);
 		return WPA_DRIVER_OEM_STATUS_FAILURE;
 	}
@@ -2573,6 +2591,9 @@ static int wpa_driver_handle_csi_cmd(struct i802_bss *bss, char *cmd,
 	wpa_printf(MSG_DEBUG, "cmd:%s", cmd);
 	if (os_strncasecmp(cmd, "start", 5) == 0) {
 		char *traverse = cmd;
+		g_csi_param.nss = -1;
+		g_csi_param.bw = -1;
+		g_csi_param.fixed_agc = 0;
 		while (traverse && *traverse != '\0') {
 			if (os_strncasecmp(traverse, "Duration=", 9) == 0) {
 				duration_str_present = true;
@@ -2614,6 +2635,37 @@ static int wpa_driver_handle_csi_cmd(struct i802_bss *bss, char *cmd,
 				global_frame_mask.control_mask &= CTRL_FRAME_VALUE_MAX;
 			}
 
+			if (os_strncasecmp(traverse, "NSS=", 4) == 0) {
+				traverse += 4;
+				if (*traverse != '\0' && *traverse != ' ')
+					g_csi_param.nss = atoi(traverse);
+				if (g_csi_param.nss <= 0) {
+					wpa_printf(MSG_DEBUG, "Invalid NSS");
+					snprintf(buf, buf_len, "FAIL, Invalid NSS");
+					*status = CSI_STATUS_REJECTED;
+					return WPA_DRIVER_OEM_STATUS_FAILURE;
+				}
+			}
+
+			if (os_strncasecmp(traverse, "BW=", 3) == 0) {
+				traverse += 3;
+				if (*traverse != '\0' && *traverse != ' ')
+					g_csi_param.bw = atoi(traverse);
+				if (g_csi_param.bw <= 0) {
+					wpa_printf(MSG_DEBUG, "Invalid Bandwidth");
+					snprintf(buf, buf_len, "FAIL, Invalid Bandwidth");
+					*status = CSI_STATUS_REJECTED;
+					return WPA_DRIVER_OEM_STATUS_FAILURE;
+				}
+			}
+
+			if (os_strncasecmp(traverse, "FIXED_AGC=", 10) == 0) {
+				traverse += 10;
+				if (*traverse != '\0' && *traverse != ' ')
+					if (atoi(traverse) != 0)
+						g_csi_param.fixed_agc = 1;
+			}
+
 			traverse = get_next_arg(traverse);
 			traverse = skip_white_space(traverse);
 		}
@@ -2635,6 +2687,12 @@ static int wpa_driver_handle_csi_cmd(struct i802_bss *bss, char *cmd,
 
 		wpa_printf(MSG_DEBUG, "CSI:Duration Value = %d", csi_duration);
 		wpa_printf(MSG_DEBUG, "CSI:Transport Mode Value= %d", transport_mode);
+		wpa_printf(MSG_DEBUG, "CSI:NSS Value= %d", g_csi_param.nss);
+		wpa_printf(MSG_DEBUG, "CSI:BW Value= %d", g_csi_param.bw);
+		wpa_printf(MSG_DEBUG, "CSI:management_mask= %d, control_mask= %d, data_mask= %d",
+		           global_frame_mask.management_mask,
+		           global_frame_mask.control_mask,
+		           global_frame_mask.data_mask);
 
 		if (csi_duration < 0) {
 			wpa_printf(MSG_ERROR, "Invalid duration");
@@ -2659,7 +2717,8 @@ static int wpa_driver_handle_csi_cmd(struct i802_bss *bss, char *cmd,
 		g_csi_param.bss = bss;
 		g_csi_param.transport_mode = transport_mode;
 
-		wpa_driver_start_csi_capture(bss, status, transport_mode, &global_frame_mask);
+		wpa_driver_start_csi_capture(bss, status, transport_mode, &global_frame_mask,
+		                             g_csi_param.nss, g_csi_param.bw, g_csi_param.fixed_agc);
 		if (*status == 0 && csi_duration > 0) {
 			signal(SIGALRM, stop_csi_callback);
 			alarm(csi_duration);
@@ -2695,7 +2754,8 @@ static int wpa_driver_restart_csi(struct i802_bss *bss, int *status)
 	}
 	g_csi_param.bss = bss;
 	if(wpa_driver_start_csi_capture(g_csi_param.bss, status,
-				g_csi_param.transport_mode, &global_frame_mask)) {
+				g_csi_param.transport_mode, &global_frame_mask,
+				g_csi_param.nss, g_csi_param.bw, g_csi_param.fixed_agc)) {
 		*status = CSI_STATUS_REJECTED;
 		return WPA_DRIVER_OEM_STATUS_FAILURE;
 	}

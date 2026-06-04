@@ -719,7 +719,7 @@ int NanCommand::handleNanBootstrappingIndication()
            bootstrapConfirmInd->reason_code =
                                           (NanStatusType)params->reason_code;
            bootstrapConfirmInd->come_back_delay =
-                                          (NanStatusType)params->comeback_after;
+                                          params->comeback_after;
            bootstrapConfirmInd->cookie_length = cookie_length;
            if (cookie_length)
                memcpy(bootstrapConfirmInd->cookie, cookie, cookie_length);
@@ -832,13 +832,17 @@ int NanCommand::handleNanSharedKeyDescIndication()
     }
 
     pasn = entry->pasn;
+
+    if (entry->is_paired) {
+        wpa_pasn_reset(pasn);
+        entry->is_pairing_in_progress = false;
+        return retval;
+    }
+
     evt.pairing_instance_id = entry->pairing_instance_id;
     evt.rsp_code = NAN_PAIRING_REQUEST_ACCEPT;
     evt.reason_code = NAN_STATUS_SUCCESS;
-    if (entry->is_paired)
-        evt.nan_pairing_request_type = NAN_PAIRING_VERIFICATION;
-    else
-        evt.nan_pairing_request_type = NAN_PAIRING_SETUP;
+    evt.nan_pairing_request_type = NAN_PAIRING_SETUP;
 
     evt.enable_pairing_cache = !!(entry->dcea_cap_info & DCEA_NPK_CACHING_ENABLED);
 
@@ -873,6 +877,9 @@ int NanCommand::handleNanSharedKeyDescIndication()
 
 int NanCommand::getNanFollowup(NanFollowupInd *event)
 {
+    struct nan_pairing_peer_info *entry;
+    hal_info *info = getHalInfo(wifiHandle());
+
     if (event == NULL || mNanVendorEvent == NULL) {
         ALOGE("%s: Invalid input argument event:%p mNanVendorEvent:%p",
               __func__, event, mNanVendorEvent);
@@ -933,6 +940,31 @@ int NanCommand::getNanFollowup(NanFollowupInd *event)
         pInputTlv += readLen;
         memset(&outputTlv, 0, sizeof(outputTlv));
     }
+
+    if (info && info->secure_nan) {
+        entry = nan_pairing_get_peer_from_list(info->secure_nan, event->addr);
+        if (entry) {
+            if (event->publish_subscribe_id &&
+                entry->pub_sub_id != event->publish_subscribe_id) {
+                ALOGI("Update previous pub sub id: %d with new id: %d",
+                      entry->pub_sub_id, event->publish_subscribe_id);
+                entry->pub_sub_id = event->publish_subscribe_id;
+            }
+            if (event->requestor_instance_id &&
+                entry->requestor_instance_id != event->requestor_instance_id) {
+                ALOGI("Update previous requestor instance id: %d with new id: %d",
+                      entry->requestor_instance_id, event->requestor_instance_id);
+                entry->requestor_instance_id = event->requestor_instance_id;
+            }
+        } else {
+            entry = nan_pairing_add_peer_to_list(info->secure_nan, event->addr);
+            if (entry) {
+                entry->pub_sub_id = event->publish_subscribe_id;
+                entry->requestor_instance_id = event->requestor_instance_id;
+            }
+        }
+    }
+
     return WIFI_SUCCESS;
 }
 
