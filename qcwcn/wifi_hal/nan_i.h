@@ -1839,7 +1839,9 @@ typedef enum {
     NAN_I_STATUS_INVALID_5G_CHANNEL = 27,
     NAN_I_STATUS_POLICY_MANAGER_NOT_SINGLE_MAC_MODE = 28,
     NAN_I_STATUS_VDEV_NOT_CREATED = 29,
-    NAN_I_STATUS_IC_MODE_FAIL = 30,
+    NAN_I_STATUS_SVC_SUSPEND_RESUME_FAILURE = 30,
+    NAN_I_STATUS_IC_MODE_FAIL = 31,
+
     /* 27-4095 Reserved */
     /* NAN Configuration Response codes */
     NAN_I_STATUS_INVALID_RSSI_CLOSE_VALUE = 4096,
@@ -2169,6 +2171,8 @@ struct nan_pairing_peer_info {
     struct pasn_auth_frame *frame;
     /* dialog token in bootstrapping request/response */
     u8 dialog_token;
+    /* cipher type used for pairing */
+    u32 cipher_type;
 };
 
 struct wpa_secure_nan {
