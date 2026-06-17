@@ -4162,7 +4162,7 @@ void wifihal_event_mgmt_tx_status(wifi_handle handle, struct nlattr *cookie,
 
     peer = nan_pairing_get_peer_from_list(info->secure_nan, (u8 *)mgmt->da);
     if (!peer) {
-        ALOGE("nl80211: Peer not found in the pairing list");
+        ALOGV("nl80211: Peer not found in the pairing list");
         return;
     }
 
