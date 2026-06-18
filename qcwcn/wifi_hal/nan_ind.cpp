@@ -673,7 +673,6 @@ int NanCommand::handleNanBootstrappingIndication()
            memcpy(bootstrapReqInd.peer_disc_mac_addr, mac, NAN_MAC_ADDR_LEN);
            bootstrapReqInd.request_bootstrapping_method =
              get_matching_bootstrap_method(params->bootstrapping_method_bitmap);
-           handleNanBootstrappingReqInd(&bootstrapReqInd);
            entry = nan_pairing_add_peer_to_list(info->secure_nan, mac);
            if (entry) {
                entry->requestor_instance_id = bootstrapReqInd.requestor_instance_id;
@@ -685,6 +684,7 @@ int NanCommand::handleNanBootstrappingIndication()
                                       params->bootstrapping_method_bitmap;
                entry->dialog_token = params->dialog_token;
            }
+           handleNanBootstrappingReqInd(&bootstrapReqInd);
        } else if (params->type == NAN_BS_TYPE_RESPONSE) {
            entry = nan_pairing_get_peer_from_list(info->secure_nan, mac);
            if (entry == NULL) {
@@ -1221,6 +1221,10 @@ void NanCommand::getNanReceiveSdeaCtrlParams(const u8* pInValue,
         pPeerSdeaParams->ranging_state =
                            (NanRangingState)((pInValue[0] & BIT_7) ?
                             NAN_RANGING_ENABLE : NAN_RANGING_DISABLE);
+
+        u16 value = (u16)pInValue[0] | ((u16)pInValue[1] << 8);
+        pPeerSdeaParams->gtk_protection = (value & BIT_10) ? 1 : 0;
+
 #if 0
         pPeerSdeaParams->enable_ranging_limit =
                          (NanRangingLimitState)((pInValue[0] & BIT_8) ?
