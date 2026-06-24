@@ -352,6 +352,10 @@ static wifi_error acquire_supported_features(wifi_interface_handle iface,
     wifi_error ret;
     interface_info *iinfo = getIfaceInfo(iface);
     wifi_handle handle = getWifiHandle(iface);
+    if (!iinfo) {
+        ALOGE("%s: null iface handle", __FUNCTION__);
+        return WIFI_ERROR_INVALID_ARGS;
+    }
     *set = 0;
 
     WifihalGeneric supportedFeatures(handle, 0,
@@ -2654,7 +2658,12 @@ wifi_error wifi_get_supported_feature_set(wifi_interface_handle iface,
         feature_set *set)
 {
     int ret = 0;
+    interface_info *ifaceInfo = getIfaceInfo(iface);
     wifi_handle handle = getWifiHandle(iface);
+    if (!ifaceInfo) {
+        ALOGE("%s: null iface handle", __FUNCTION__);
+        return WIFI_ERROR_INVALID_ARGS;
+    }
     *set = 0;
     hal_info *info = getHalInfo(handle);
 
@@ -2678,6 +2687,10 @@ wifi_error wifi_get_concurrency_matrix(wifi_interface_handle handle,
     WifihalGeneric *vCommand = NULL;
     interface_info *ifaceInfo = getIfaceInfo(handle);
     wifi_handle wifiHandle = getWifiHandle(handle);
+    if (!ifaceInfo) {
+        ALOGE("%s: null iface handle", __FUNCTION__);
+        return WIFI_ERROR_INVALID_ARGS;
+    }
 
     if (set == NULL) {
         ALOGE("%s: NULL set pointer provided. Exit.",
@@ -2808,6 +2821,10 @@ wifi_error wifi_set_nodfs_flag(wifi_interface_handle handle, u32 nodfs)
     WifiVendorCommand *vCommand = NULL;
     interface_info *ifaceInfo = getIfaceInfo(handle);
     wifi_handle wifiHandle = getWifiHandle(handle);
+    if (!ifaceInfo) {
+        ALOGE("%s: null iface handle", __FUNCTION__);
+        return WIFI_ERROR_INVALID_ARGS;
+    }
 
     vCommand = new WifiVendorCommand(wifiHandle, 0,
             OUI_QCA,
@@ -2860,6 +2877,11 @@ wifi_error wifi_start_sending_offloaded_packet(wifi_request_id id,
     wifi_error ret;
     struct nlattr *nlData;
     WifiVendorCommand *vCommand = NULL;
+    interface_info *ifaceInfo = getIfaceInfo(iface);
+    if (!ifaceInfo) {
+        ALOGE("%s: null iface handle", __FUNCTION__);
+        return WIFI_ERROR_INVALID_ARGS;
+    }
 
     ret = initialize_vendor_cmd(iface, id,
                                 QCA_NL80211_VENDOR_SUBCMD_OFFLOADED_PACKETS,
@@ -2942,6 +2964,11 @@ wifi_error wifi_stop_sending_offloaded_packet(wifi_request_id id,
     wifi_error ret;
     struct nlattr *nlData;
     WifiVendorCommand *vCommand = NULL;
+    interface_info *ifaceInfo = getIfaceInfo(iface);
+    if (!ifaceInfo) {
+        ALOGE("%s: null iface handle", __FUNCTION__);
+        return WIFI_ERROR_INVALID_ARGS;
+    }
 
     ret = initialize_vendor_cmd(iface, id,
                                 QCA_NL80211_VENDOR_SUBCMD_OFFLOADED_PACKETS,
@@ -2990,8 +3017,13 @@ static wifi_error wifi_set_packet_filter(wifi_interface_handle iface,
     struct nlattr *nlData;
     WifiVendorCommand *vCommand = NULL;
     u32 current_offset = 0;
+    interface_info *ifaceInfo = getIfaceInfo(iface);
     wifi_handle wifiHandle = getWifiHandle(iface);
     hal_info *info = getHalInfo(wifiHandle);
+    if (!ifaceInfo) {
+        ALOGE("%s: null iface handle", __FUNCTION__);
+        return WIFI_ERROR_INVALID_ARGS;
+    }
 
     /* len=0 clears the filters in driver/firmware */
     if (len != 0 && program == NULL) {
@@ -3077,6 +3109,10 @@ static wifi_error wifi_get_packet_filter_capabilities(
     WifihalGeneric *vCommand = NULL;
     interface_info *ifaceInfo = getIfaceInfo(handle);
     wifi_handle wifiHandle = getWifiHandle(handle);
+    if (!ifaceInfo) {
+        ALOGE("%s: null iface handle", __FUNCTION__);
+        return WIFI_ERROR_INVALID_ARGS;
+    }
 
     if (version == NULL || max_len == NULL) {
         ALOGE("%s: NULL version/max_len pointer provided. Exit.",
@@ -3144,6 +3180,11 @@ static wifi_error wifi_configure_nd_offload(wifi_interface_handle iface,
     wifi_error ret;
     struct nlattr *nlData;
     WifiVendorCommand *vCommand = NULL;
+    interface_info *ifaceInfo = getIfaceInfo(iface);
+    if (!ifaceInfo) {
+        ALOGE("%s: null iface handle", __FUNCTION__);
+        return WIFI_ERROR_INVALID_ARGS;
+    }
 
     ret = initialize_vendor_cmd(iface, get_requestid(),
                                 QCA_NL80211_VENDOR_SUBCMD_ND_OFFLOAD,
@@ -3363,6 +3404,10 @@ static wifi_error wifi_read_packet_filter(wifi_interface_handle handle,
     interface_info *ifaceInfo = getIfaceInfo(handle);
     wifi_handle wifiHandle = getWifiHandle(handle);
     hal_info *info = getHalInfo(wifiHandle);
+    if (!ifaceInfo) {
+        ALOGE("%s: null iface handle", __FUNCTION__);
+        return WIFI_ERROR_INVALID_ARGS;
+    }
 
     /* Length to be passed to this function should be non-zero
      * Return invalid argument if length is passed as zero
