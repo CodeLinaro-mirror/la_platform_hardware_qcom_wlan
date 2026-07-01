@@ -4381,6 +4381,7 @@ wifi_error wifi_enable_sta_channel_for_peer_network(wifi_handle handle,
     wifi_interface_handle iface = NULL;
     hal_info *info;
     uint8_t peer_protocol_indoor_bitmap = 0;
+    uint8_t enable_dfs_scc_p2p = 0;
 
     info = getHalInfo(handle);
     if (!info) {
@@ -4404,11 +4405,25 @@ wifi_error wifi_enable_sta_channel_for_peer_network(wifi_handle handle,
         peer_protocol_indoor_bitmap |= 0x2;  // Set bit 1 for NAN
     }
 
+    enable_dfs_scc_p2p = (channelCategoryEnableFlag & 0x2) ? 1 : 0;
+
+    ALOGV("%s: channelCategoryEnableFlag=0x%x, Indoor bitmap=0x%x, DFS SCC P2P=%u",
+          __func__, channelCategoryEnableFlag, peer_protocol_indoor_bitmap,
+          enable_dfs_scc_p2p);
+
     if (peer_protocol_indoor_bitmap &&
         !check_feature(QCA_WLAN_VENDOR_FEATURE_SUPPORT_STA_INDOOR_CH_SCC,
                        &info->driver_supported_features)) {
         ALOGE("%s: STA Indoor Channel SCC is not supported by "
               "the driver (feature flag not set).", __func__);
+        return WIFI_ERROR_NOT_SUPPORTED;
+    }
+
+    if (enable_dfs_scc_p2p &&
+        !check_feature(QCA_WLAN_VENDOR_FEATURE_SUPPORT_STA_DFS_CH_SCC_P2P,
+                      &info->driver_supported_features)) {
+        ALOGE("%s: STA DFS Channel SCC P2P is not supported by the "
+              "driver (feature flag not set).", __func__);
         return WIFI_ERROR_NOT_SUPPORTED;
     }
 
@@ -4432,6 +4447,10 @@ wifi_error wifi_enable_sta_channel_for_peer_network(wifi_handle handle,
           "QCA_WLAN_VENDOR_ATTR_CONFIG_ALLOW_PEER_PROTOCOL_INDOOR_CH_STA_SCC to %u",
           __func__, peer_protocol_indoor_bitmap);
 
+    ALOGV("%s: Attempting to set "
+          "QCA_WLAN_VENDOR_ATTR_CONFIG_ALLOW_STA_DFS_CH_SCC_P2P to %u",
+          __func__, enable_dfs_scc_p2p);
+
     // Add the indoor channel SCC attribute with its u8 value.
     ret = vCommand->put_u8(QCA_WLAN_VENDOR_ATTR_CONFIG_ALLOW_PEER_PROTOCOL_INDOOR_CH_STA_SCC,
                            peer_protocol_indoor_bitmap);
@@ -4439,6 +4458,15 @@ wifi_error wifi_enable_sta_channel_for_peer_network(wifi_handle handle,
         ALOGE("%s: Failed to put "
               "QCA_WLAN_VENDOR_ATTR_CONFIG_ALLOW_PEER_PROTOCOL_INDOOR_CH_STA_SCC,"
               " error: %d", __func__, ret);
+        goto cleanup;
+    }
+
+    // Add the DFS channel SCC P2P attribute with its u8 value
+    ret = vCommand->put_u8(QCA_WLAN_VENDOR_ATTR_CONFIG_ALLOW_STA_DFS_CH_SCC_P2P,
+                           enable_dfs_scc_p2p);
+    if (ret != WIFI_SUCCESS) {
+        ALOGE("%s: Failed to put QCA_WLAN_VENDOR_ATTR_CONFIG_ALLOW_STA_DFS_CH_SCC_P2P, "
+              "error: %d", __func__, ret);
         goto cleanup;
     }
 
