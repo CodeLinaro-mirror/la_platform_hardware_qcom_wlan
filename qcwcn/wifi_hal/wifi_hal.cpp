@@ -118,6 +118,8 @@
 #define POLL_DRIVER_DURATION_US (100000)
 #define POLL_DRIVER_MAX_TIME_MS (10000)
 
+#define SOCK_BUF_SIZE (256 * 1024)
+
 static int attach_monitor_sock(wifi_handle handle, wifihal_ctrl_req_t *ctrl_msg);
 
 static int dettach_monitor_sock(wifi_handle handle, wifihal_ctrl_req_t *ctrl_msg);
@@ -161,13 +163,11 @@ wifi_error
     wifi_get_cached_scan_results(wifi_interface_handle iface,
                                  wifi_cached_scan_result_handler handler);
 
-#ifndef TARGET_SUPPORTS_WEARABLES
 wifi_error wifi_get_supported_iface_combination(wifi_interface_handle iface_handle);
 
 wifi_error wifi_get_supported_iface_concurrency_matrix(
         wifi_handle handle,
         wifi_iface_concurrency_matrix *iface_concurrency_matrix);
-#endif /* TARGET_SUPPORTS_WEARABLES */
 
 #ifdef WPA_PASN_LIB
 void wifihal_event_mgmt_tx_status(wifi_handle handle, struct nlattr *cookie,
@@ -514,7 +514,7 @@ static wifi_error wifi_init_user_sock(hal_info *info)
     }
 
     /* Set the socket buffer size */
-    if (nl_socket_set_buffer_size(user_sock, (256*1024), 0) < 0) {
+    if (nl_socket_set_buffer_size(user_sock, (SOCK_BUF_SIZE), 0) < 0) {
         ALOGE("Could not set size for user_sock: %s",
                    strerror(errno));
         /* continue anyway with the default (smaller) buffer */
@@ -545,6 +545,13 @@ static wifi_error wifi_init_user_sock(hal_info *info)
     }
 
     info->user_sock = user_sock;
+    int opt = 1;
+    ret = setsockopt(nl_socket_get_fd(user_sock), SOL_NETLINK,
+                     NETLINK_NO_ENOBUFS, &opt, sizeof(opt));
+    ALOGV("configured NETLINK_NO_ENOBUFS sockopt %d", ret);
+    ret = setsockopt(nl_socket_get_fd(user_sock), SOL_NETLINK,
+                     NETLINK_BROADCAST_ERROR, &opt, sizeof(opt));
+    ALOGV("configured NETLINK_BROADCAST_ERROR sockopt %d", ret);
     ALOGV("Initiialized diag sock successfully");
     return WIFI_SUCCESS;
 }
@@ -1183,10 +1190,8 @@ wifi_error init_wifi_vendor_hal_func_table(wifi_hal_fn *fn) {
     fn->wifi_get_usable_channels = wifi_get_usable_channels;
     fn->wifi_get_supported_radio_combinations_matrix =
                                 wifi_get_supported_radio_combinations_matrix;
-#ifndef TARGET_SUPPORTS_WEARABLES
     fn->wifi_get_supported_iface_concurrency_matrix =
                                 wifi_get_supported_iface_concurrency_matrix;
-#endif /* TARGET_SUPPORTS_WEARABLES */
     fn->wifi_nan_suspend_request = nan_suspend_request;
     fn->wifi_nan_resume_request = nan_resume_request;
     fn->wifi_nan_pairing_request = nan_pairing_request;
@@ -1558,13 +1563,11 @@ wifi_error wifi_initialize(wifi_handle *handle)
         goto unload;
     }
 
-#ifndef TARGET_SUPPORTS_WEARABLES
     ret = wifi_get_supported_iface_combination(iface_handle);
     if (ret != WIFI_SUCCESS) {
         ALOGE("Failed to get driver supported interface combinations");
         goto unload;
     }
-#endif /* TARGET_SUPPORTS_WEARABLES */
 
     ret = wifi_get_sar_version(iface_handle);
     if (ret != WIFI_SUCCESS) {
@@ -3557,7 +3560,6 @@ static int wifi_is_nan_ext_cmd_supported(wifi_interface_handle iface_handle)
     }
 }
 
-#ifndef TARGET_SUPPORTS_WEARABLES
 char *get_iface_mask_str(u32 mask, char *buf, size_t buflen) {
     char * pos, *end;
     int res;
@@ -3791,17 +3793,16 @@ public:
                     struct nlattr *nl_limit, *nl_mode;
                     int err, rem_limit, rem_mode, j = 0;
                     static struct nla_policy
-                    iface_combination_policy[NUM_NL80211_IFACE_COMB] = {
-                        [NL80211_IFACE_COMB_LIMITS] = { .type = NLA_NESTED },
-                        [NL80211_IFACE_COMB_MAXNUM] = { .type = NLA_U32 },
-                        [NL80211_IFACE_COMB_STA_AP_BI_MATCH] = { .type = NLA_FLAG },
-                        [NL80211_IFACE_COMB_NUM_CHANNELS] = { .type = NLA_U32 },
-                        [NL80211_IFACE_COMB_RADAR_DETECT_WIDTHS] = { .type = NLA_U32 },
-                    },
-                    iface_limit_policy[NUM_NL80211_IFACE_LIMIT] = {
-                        [NL80211_IFACE_LIMIT_TYPES] = { .type = NLA_NESTED },
-                        [NL80211_IFACE_LIMIT_MAX] = { .type = NLA_U32 },
-                    };
+                        iface_combination_policy[NUM_NL80211_IFACE_COMB],
+                        iface_limit_policy[NUM_NL80211_IFACE_LIMIT];
+
+                    iface_combination_policy[NL80211_IFACE_COMB_LIMITS].type = NLA_NESTED;
+                    iface_combination_policy[NL80211_IFACE_COMB_MAXNUM].type = NLA_U32;
+                    iface_combination_policy[NL80211_IFACE_COMB_STA_AP_BI_MATCH].type = NLA_FLAG;
+                    iface_combination_policy[NL80211_IFACE_COMB_NUM_CHANNELS].type = NLA_U32;
+                    iface_combination_policy[NL80211_IFACE_COMB_RADAR_DETECT_WIDTHS].type = NLA_U32;
+                    iface_limit_policy[NL80211_IFACE_LIMIT_TYPES].type = NLA_NESTED;
+                    iface_limit_policy[NL80211_IFACE_LIMIT_MAX].type = NLA_U32;
 
                     err = nla_parse_nested(tb_comb, MAX_NL80211_IFACE_COMB,
                                            nl_combi, iface_combination_policy);
@@ -3926,7 +3927,6 @@ wifi_error wifi_get_supported_iface_combination(wifi_interface_handle iface_hand
 
     return ret;
 }
-#endif /* TARGET_SUPPORTS_WEARABLES */
 
 wifi_error wifi_get_radar_history(wifi_interface_handle handle,
        radar_history_result *resultBuf, int resultBufSize, int *numResults)
@@ -4099,7 +4099,6 @@ cleanup:
     return ret;
 }
 
-#ifndef TARGET_SUPPORTS_WEARABLES
 wifi_error wifi_get_supported_iface_concurrency_matrix(
         wifi_handle handle, wifi_iface_concurrency_matrix *iface_comb_matrix)
 {
@@ -4134,7 +4133,6 @@ wifi_error wifi_get_supported_iface_concurrency_matrix(
     }
     return WIFI_SUCCESS;
 }
-#endif /* TARGET_SUPPORTS_WEARABLES */
 
 #ifdef WPA_PASN_LIB
 
