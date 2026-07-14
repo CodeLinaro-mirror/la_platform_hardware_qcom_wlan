@@ -2651,7 +2651,8 @@ void nan_pairing_set_password(struct nan_pairing_peer_info *peer, u8 *passphrase
             len + 1);
     pt = sae_derive_pt(NULL, pairing_ssid, pairing_ssid_len,
                        (const u8 *)passphrase, len,
-                       peer->sae_password_id);
+                       (const u8 *)peer->sae_password_id,
+                        peer->sae_password_id ? os_strlen(peer->sae_password_id) : 0);
     pasn_set_pt(peer->pasn, pt);
     /* Set passpharse for Pairing Responder to validate PASN auth1 frame*/
     pasn_set_password(peer->pasn, peer->passphrase);
