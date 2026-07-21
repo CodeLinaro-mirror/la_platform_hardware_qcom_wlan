@@ -4446,6 +4446,17 @@ wifi_error wifi_enable_sta_channel_for_peer_network(wifi_handle handle,
         return WIFI_ERROR_NOT_AVAILABLE;
     }
 
+    // Return not supported if both the features are not support by the driver.
+    // Older driver may not have implementation itself.
+    if (!check_feature(QCA_WLAN_VENDOR_FEATURE_SUPPORT_STA_DFS_CH_SCC_P2P,
+                       &info->driver_supported_features) &&
+        !check_feature(QCA_WLAN_VENDOR_FEATURE_SUPPORT_STA_INDOOR_CH_SCC,
+                       &info->driver_supported_features)) {
+        ALOGE("%s: STA Indoor Channel SCC and STA DFS Channel SCC P2P are "
+              "not supported by the driver  (feature flag not set).", __func__);
+        return WIFI_ERROR_NOT_SUPPORTED;
+    }
+
     // Bit 0: Enable indoor channel SCC for P2P/NAN
     // Bit 1: Enable DFS channel SCC for P2P
     static const uint32_t CHANNEL_CATEGORY_INDOOR_SCC = 0x1;
