@@ -8504,7 +8504,6 @@ int wpa_driver_nl80211_driver_cmd(void *priv, char *cmd, char *buf,
 			wpa_printf(MSG_DEBUG, "%s %s len = %d, %zu", __func__, buf, ret, buf_len);
 		wpa_driver_notify_country_change(drv->ctx, cmd);
 	}
-	wpa_printf(MSG_DEBUG, "This debug print is to test coral workflow");
 	return ret;
 }
 
