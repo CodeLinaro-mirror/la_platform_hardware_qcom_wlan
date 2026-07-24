@@ -2363,6 +2363,9 @@ wifi_error nan_set_nira_request(transaction_id id, wifi_interface_handle iface,
 wifi_error nan_sharedkey_followup_request(transaction_id id,
                                      wifi_interface_handle iface,
                                      NanSharedKeyRequest *msg);
+wifi_error nan_pairing_handle_auth_failure(wifi_handle handle,
+                                           struct nan_pairing_peer_info *entry,
+                                           NanStatusType reason_code);
 wifi_error nan_validate_shared_key_desc(wifi_interface_handle iface,
                                         const u8 *addr, u8 *buf, u16 len);
 wifi_error nan_get_shared_key_descriptor(hal_info *info, const u8 *addr,
