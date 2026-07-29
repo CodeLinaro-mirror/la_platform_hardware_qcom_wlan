@@ -2173,6 +2173,12 @@ struct nan_pairing_peer_info {
     u8 dialog_token;
     /* cipher type used for pairing */
     u32 cipher_type;
+    /* NIRA nonce used in verification */
+    u8 nira_nonce[NAN_IDENTITY_NONCE_LEN];
+    /* NIRA tag used in verification */
+    u8 nira_tag[NAN_IDENTITY_TAG_LEN];
+    /* flag to check if NIRA is valid */
+    bool is_nira_valid;
 };
 
 struct wpa_secure_nan {
@@ -2390,6 +2396,10 @@ wifi_error nan_group_key_pn_request(transaction_id id,
                                     wifi_interface_handle iface,
                                     u32 key_index);
 u16 get_matching_bootstrap_method(u16 method);
+void nan_cache_peer_nira(struct nan_pairing_peer_info *entry,
+                         u8 *nira_nonce, u8 *nira_tag);
+void nan_flush_peer_alias_key_by_nik(hal_info *info,
+                                     struct nan_pairing_peer_info *entry);
 
 #ifdef __cplusplus
 }
