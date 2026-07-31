@@ -205,6 +205,7 @@ wifi_error nan_pairing_indication_response(transaction_id id,
         } else {
             pasn_set_akmp(pasn, WPA_KEY_MGMT_PASN);
             pasn_set_wpa_key_mgmt(pasn, WPA_KEY_MGMT_PASN);
+            pasn_set_noauth(pasn, 1);
         }
 
         // Configure NIK from the user.
@@ -215,7 +216,7 @@ wifi_error nan_pairing_indication_response(transaction_id id,
 
         if ((secure_nan->dev_nik->nira_nonce_len +
              secure_nan->dev_nik->nira_tag_len) > PMKID_LEN) {
-            ALOGE("%s: Invalid nonce/tag len, nonce_len = %d, tag len = %d",
+            ALOGE("%s: Invalid nonce/tag len, nonce_len = %zu, tag len = %zu",
                   __FUNCTION__, secure_nan->dev_nik->nira_nonce_len,
                   secure_nan->dev_nik->nira_tag_len);
             goto fail;
@@ -228,7 +229,8 @@ wifi_error nan_pairing_indication_response(transaction_id id,
             pasn_set_custom_pmkid(pasn, pmkid);
         }
         // construct wrapped data for csia, nira
-        nan_pairing_add_verification_ies(secure_nan, pasn, peer->peer_role);
+        nan_pairing_add_verification_ies(secure_nan, pasn, peer->peer_role,
+                                         msg->cipher_type);
 
         if (msg->key_info.key_type == NAN_SECURITY_KEY_INPUT_PMK &&
             msg->akm == SAE) {
@@ -264,7 +266,8 @@ wifi_error nan_pairing_indication_response(transaction_id id,
             goto fail;
         }
         // construct wrapped data for dcea, csia, npba
-        nan_pairing_add_setup_ies(secure_nan, pasn, peer->peer_role);
+        nan_pairing_add_setup_ies(secure_nan, pasn, peer->peer_role,
+                                  msg->cipher_type);
     }
 
     if (secure_nan->rsnxe)
@@ -280,6 +283,7 @@ wifi_error nan_pairing_indication_response(transaction_id id,
     pasn_set_responder_pmksa(pasn, secure_nan->responder_pmksa);
     peer->trans_id = id;
     peer->trans_id_valid = true;
+    peer->cipher_type = msg->cipher_type;
 
     ret = handle_auth_pasn_1(pasn, secure_nan->own_addr, (u8 *)mgmt->sa, mgmt,
                              peer->frame->len, reject);
@@ -382,7 +386,7 @@ int nan_pairing_handle_pasn_auth(wifi_handle handle, const u8 *data, size_t len)
                           len - offsetof(struct ieee80211_mgmt,
                           u.auth.variable), NAN_ATTR_ID_CSIA);
 
-        if (nan_attr_ie) {
+        if (entry && nan_attr_ie) {
             nan_csia *csia = (nan_csia *)nan_attr_ie;
             entry->csia_cap_info = csia->caps;
         }
@@ -461,7 +465,7 @@ int nan_pairing_handle_pasn_auth(wifi_handle handle, const u8 *data, size_t len)
             ALOGE("PASN Responder: Handle PASN Auth3 failed ");
             return WIFI_ERROR_UNKNOWN;
         }
-        if (!(entry->dcea_cap_info & DCEA_NPK_CACHING_ENABLED)) {
+        if (entry->is_paired || !(entry->dcea_cap_info & DCEA_NPK_CACHING_ENABLED)) {
         // Send Pairing Confirmation as Followup with Peer NIK is not mandatory
             NanPairingConfirmInd evt;
             evt.pairing_instance_id = entry->pairing_instance_id;
@@ -479,6 +483,11 @@ int nan_pairing_handle_pasn_auth(wifi_handle handle, const u8 *data, size_t len)
             else
                 evt.npk_security_association.akm = SAE;
 
+            if (pasn_get_cipher(pasn) == WPA_CIPHER_CCMP_256)
+                evt.npk_security_association.cipher_type = NAN_CIPHER_SUITE_PUBLIC_KEY_PASN_256_MASK;
+            else
+                evt.npk_security_association.cipher_type = NAN_CIPHER_SUITE_PUBLIC_KEY_PASN_128_MASK;
+
             if (info->secure_nan->dev_nik)
                 memcpy(evt.npk_security_association.local_nan_identity_key,
                        info->secure_nan->dev_nik->nik_data,
@@ -489,7 +498,7 @@ int nan_pairing_handle_pasn_auth(wifi_handle handle, const u8 *data, size_t len)
                        pasn_get_pmk_len(pasn));
                 evt.npk_security_association.npk.pmk_len = pasn_get_pmk_len(pasn);
             } else {
-                ALOGE("%s: Invalid pmk len: %d", __FUNCTION__, pasn_get_pmk_len(pasn));
+                ALOGE("%s: Invalid pmk len: %zu", __FUNCTION__, pasn_get_pmk_len(pasn));
             }
             wpa_pasn_reset(pasn);
             nanCommand->handleNanPairingConfirm(&evt);
