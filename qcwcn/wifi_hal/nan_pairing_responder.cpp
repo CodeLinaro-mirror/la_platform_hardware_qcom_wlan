@@ -228,7 +228,8 @@ wifi_error nan_pairing_indication_response(transaction_id id,
             pasn->custom_pmkid_valid = true;
         }
         // construct wrapped data for csia, nira
-        nan_pairing_add_verification_ies(secure_nan, pasn, peer->peer_role);
+        nan_pairing_add_verification_ies(secure_nan, pasn, peer->peer_role,
+                                         msg->cipher_type);
 
         if (msg->key_info.key_type == NAN_SECURITY_KEY_INPUT_PMK &&
             msg->akm == SAE) {
@@ -263,7 +264,8 @@ wifi_error nan_pairing_indication_response(transaction_id id,
             goto fail;
         }
         // construct wrapped data for dcea, csia, npba
-        nan_pairing_add_setup_ies(secure_nan, pasn, peer->peer_role);
+        nan_pairing_add_setup_ies(secure_nan, pasn, peer->peer_role,
+                                  msg->cipher_type);
     }
 
     if (secure_nan->rsnxe)
@@ -376,6 +378,14 @@ int nan_pairing_handle_pasn_auth(wifi_handle handle, const u8 *data, size_t len)
                    NAN_IDENTITY_TAG_LEN);
         }
 
+        nan_attr_ie = nan_get_attr_from_ies(mgmt->u.auth.variable,
+                          len - offsetof(struct ieee80211_mgmt,
+                          u.auth.variable), NAN_ATTR_ID_CSIA);
+
+        if (nan_attr_ie) {
+            nan_csia *csia = (nan_csia *)nan_attr_ie;
+            entry->csia_cap_info = csia->caps;
+        }
         if (entry && entry->is_pairing_in_progress) {
             ALOGV("PASN Responder: Drop PASN M1 frame as Pairing in progress");
             return WIFI_ERROR_UNKNOWN;
@@ -468,6 +478,11 @@ int nan_pairing_handle_pasn_auth(wifi_handle handle, const u8 *data, size_t len)
                 evt.npk_security_association.akm = PASN;
             else
                 evt.npk_security_association.akm = SAE;
+
+            if (pasn->cipher == WPA_CIPHER_CCMP_256)
+                evt.npk_security_association.cipher_type = NAN_CIPHER_SUITE_PUBLIC_KEY_PASN_256_MASK;
+            else
+                evt.npk_security_association.cipher_type = NAN_CIPHER_SUITE_PUBLIC_KEY_PASN_128_MASK;
 
             if (info->secure_nan->dev_nik)
                 memcpy(evt.npk_security_association.local_nan_identity_key,
