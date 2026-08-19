@@ -1957,6 +1957,54 @@ int nan_pairing_set_keys_from_cache(wifi_handle handle, u8 *src_addr, u8 *bssid,
     return WIFI_SUCCESS;
 }
 
+wifi_error nan_pairing_handle_auth_failure(wifi_handle handle,
+                                           struct nan_pairing_peer_info *entry,
+                                           NanStatusType reason_code)
+{
+    NanCommand *nanCommand = NULL;
+    hal_info *info = getHalInfo(handle);
+    nanCommand = NanCommand::instance(handle);
+
+    if (!entry || !info || !nanCommand) {
+        ALOGE("%s: Invalid argument: info=%p, nanCommand=%p, entry=%p",
+              __FUNCTION__, info, nanCommand, entry);
+        return WIFI_ERROR_UNKNOWN;
+    }
+
+    NanPairingConfirmInd evt;
+    memset(&evt, 0, sizeof(evt));
+
+    evt.pairing_instance_id = entry->pairing_instance_id;
+    evt.rsp_code = NAN_PAIRING_REQUEST_REJECT;
+    evt.reason_code = reason_code;
+    evt.enable_pairing_cache = 0;
+
+    nanCommand->handleNanPairingConfirm(&evt);
+
+    entry->is_paired = false;
+    entry->is_pairing_in_progress = false;
+
+    wpa_pasn_reset(entry->pasn);
+
+    ptksa_cache_flush(info->secure_nan->ptksa,
+                      entry->bssid,
+                      WPA_CIPHER_NONE);
+
+    nan_pairing_set_key(info, WPA_ALG_NONE, entry->bssid,
+                        0, 0, NULL, 0, NULL, 0,
+                        KEY_FLAG_PAIRWISE);
+
+    entry->peer_role = SECURE_NAN_IDLE;
+
+    ALOGI("%s: NAN pairing authentication failure handled, "
+          "pairing_instance_id=%u, reason_code=%u",
+          __FUNCTION__,
+          entry->pairing_instance_id,
+          (unsigned int)reason_code);
+
+    return WIFI_ERROR_UNKNOWN;
+}
+
 static u32 nan_fetch_key_idx(struct wpa_secure_nan *secure_nan)
 {
     if (secure_nan->pn_bitmap & NAN_PN_REQ_BITMAP_IGTK) {
