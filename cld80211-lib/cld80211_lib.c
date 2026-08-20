@@ -552,10 +552,10 @@ void *cld80211_init(void)
 	int opt = 1;
 	int ret = setsockopt(nl_socket_get_fd(ctx->sock), SOL_NETLINK,
 			     NETLINK_NO_ENOBUFS, &opt, sizeof(opt));
-	ALOGV("cld80211_init: configured NETLINK_NO_ENOBUFS %d", ret);
+	ALOGE("cld80211_init: configured NETLINK_NO_ENOBUFS %d", ret);
 	ret = setsockopt(nl_socket_get_fd(ctx->sock), SOL_NETLINK,
 			 NETLINK_BROADCAST_ERROR, &opt, sizeof(opt));
-	ALOGV("cld80211_init: configured NETLINK_BROADCAST_ERROR %d", ret);
+	ALOGE("cld80211_init: configured NETLINK_BROADCAST_ERROR %d", ret);
 	return ctx;
 cleanup:
 	if (ctx->sock) {
