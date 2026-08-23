@@ -19,6 +19,11 @@ AM_CPPFLAGS += -DUSE_GLIB $(GLIB_CFLAGS)
 requiredlibs += $(GLIB_LIBS)
 endif
 
+if USE_PASN_LIB
+AM_CPPFLAGS += -DWPA_PASN_LIB $(PASN_CFLAGS) $(PASN_INCLUDES)
+requiredlibs += -lpasn
+endif
+
 h_sources = ${WORKSPACE}/system/core/include/log/log.h
 
 #include sub directories header files
