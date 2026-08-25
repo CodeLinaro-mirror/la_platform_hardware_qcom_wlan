@@ -1525,6 +1525,11 @@ typedef struct PACKED
     NanMsgHeader fwHeader;
 } NanCapabilitiesReqMsg, *pNanCapabilitiesReqMsg;
 
+/* Bitmap values for ndp_supported_bands below */
+#define NAN_BAND_SUPPORT_2G 0x1
+#define NAN_BAND_SUPPORT_5G 0x2
+#define NAN_BAND_SUPPORT_6G 0x4
+
 /* NAN Capabilities Rsp */
 typedef struct PACKED
 {
