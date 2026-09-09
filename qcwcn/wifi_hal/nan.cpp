@@ -220,7 +220,6 @@ wifi_error nan_disable_request(transaction_id id,
             t_nanCommand->deallocSvcParams();
             t_nanCommand->setNanDisabled();
         }
-        secure_nan_cache_flush(info);
     }
 
 cleanup:
