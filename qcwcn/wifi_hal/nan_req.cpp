@@ -265,21 +265,47 @@ wifi_error NanCommand::putNanEnable(transaction_id id, const NanEnableRequest *p
     wifi_error ret;
     ALOGV("NAN_ENABLE");
     size_t message_len = NAN_MAX_ENABLE_REQ_SIZE;
+    bool nan_2g_supported;
+    bool nan_5g_supported;
     int freq_24g;
+    int freq_5g;
+    u8 nan_supported_bands = NAN_BAND_SUPPORT_2G | NAN_BAND_SUPPORT_5G |
+                              NAN_BAND_SUPPORT_6G;
 
     if (pReq == NULL) {
         cleanup();
         return WIFI_ERROR_INVALID_ARGS;
     }
 
-    if (pReq->config_24g_channel == 0)
-        freq_24g = 2437;
-    else
-        freq_24g = pReq->channel_24g_val;
+    ALOGI("%s: user config: 2.4 GHz support %d 2.4 GHz Channel %d "
+          "5 GHz support %d 5 GHz Channel %d", __func__,
+          pReq->config_2dot4g_support, pReq->config_24g_channel,
+          pReq->config_support_5g, pReq->config_5g_channel);
+
+    if (mNanCommandInstance != NULL) {
+        nan_supported_bands = mNanCommandInstance->getNanSupportedBands();
+    }
+
+    nan_2g_supported = (nan_supported_bands & NAN_BAND_SUPPORT_2G) != 0;
+    nan_5g_supported = (nan_supported_bands & NAN_BAND_SUPPORT_5G) != 0;
+
+    ALOGI("%s: nan supported bands:0x%x", __func__, nan_supported_bands);
+
+    if (nan_2g_supported) {
+        freq_24g = pReq->config_24g_channel ? pReq->channel_24g_val : 2437;
+    } else {
+        freq_24g = 0;
+    }
+
+    if (nan_5g_supported) {
+        freq_5g = pReq->config_5g_channel ? pReq->channel_5g_val : 5745;
+    } else {
+        freq_5g = 0;
+    }
 
     message_len += \
         (
-          pReq->config_support_5g ? (SIZEOF_TLV_HDR + \
+          nan_5g_supported ? (SIZEOF_TLV_HDR + \
           sizeof(pReq->support_5g_val)) : 0 \
         ) + \
         (
@@ -299,7 +325,7 @@ wifi_error NanCommand::putNanEnable(transaction_id id, const NanEnableRequest *p
           sizeof(pReq->hop_count_limit_val)) : 0 \
         ) + \
         (
-          pReq->config_2dot4g_support ? (SIZEOF_TLV_HDR + \
+          nan_2g_supported ? (SIZEOF_TLV_HDR + \
           sizeof(pReq->support_2dot4g_val)) : 0 \
         ) + \
         (
@@ -363,11 +389,11 @@ wifi_error NanCommand::putNanEnable(transaction_id id, const NanEnableRequest *p
           sizeof(pReq->hop_count_force_val)) : 0 \
         ) + \
         (
-          /* always include 24g channel/freq */
-          SIZEOF_TLV_HDR +  sizeof(u32) \
+          nan_2g_supported ? (SIZEOF_TLV_HDR + \
+          sizeof(u32)) : 0 \
         ) + \
         (
-          pReq->config_5g_channel ? (SIZEOF_TLV_HDR + \
+          nan_5g_supported ? (SIZEOF_TLV_HDR + \
           sizeof(u32)) : 0 \
         ) + \
         (
@@ -445,9 +471,9 @@ wifi_error NanCommand::putNanEnable(transaction_id id, const NanEnableRequest *p
         tlvs = addTlv(NAN_TLV_TYPE_FOLLOWUP_MGMT_RX_ENABLED, sizeof(u8),
                       (const u8*)&followup_mgmt_rx_enable, tlvs);
     }
-    if (pReq->config_support_5g) {
+    if (nan_5g_supported) {
         tlvs = addTlv(NAN_TLV_TYPE_5G_SUPPORT, sizeof(pReq->support_5g_val),
-                     (const u8*)&pReq->support_5g_val, tlvs);
+                     (const u8*)&nan_5g_supported, tlvs);
     }
     if (pReq->config_sid_beacon) {
         tlvs = addTlv(NAN_TLV_TYPE_SID_BEACON, sizeof(pReq->sid_beacon_val),
@@ -468,9 +494,9 @@ wifi_error NanCommand::putNanEnable(transaction_id id, const NanEnableRequest *p
                       sizeof(pReq->hop_count_limit_val),
                       (const u8*)&pReq->hop_count_limit_val, tlvs);
     }
-    if (pReq->config_2dot4g_support) {
+    if (nan_2g_supported) {
         tlvs = addTlv(NAN_TLV_TYPE_24G_SUPPORT, sizeof(pReq->support_2dot4g_val),
-                      (const u8*)&pReq->support_2dot4g_val, tlvs);
+                      (const u8*)&nan_2g_supported, tlvs);
     }
     if (pReq->config_2dot4g_beacons) {
         tlvs = addTlv(NAN_TLV_TYPE_24G_BEACON, sizeof(pReq->beacon_2dot4g_val),
@@ -545,13 +571,15 @@ wifi_error NanCommand::putNanEnable(transaction_id id, const NanEnableRequest *p
                       sizeof(pReq->hop_count_force_val),
                       (const u8*)&pReq->hop_count_force_val, tlvs);
     }
-    tlvs = addTlv(NAN_TLV_TYPE_24G_CHANNEL,
-                      sizeof(u32),
-                      (const u8*)&freq_24g, tlvs);
-    if (pReq->config_5g_channel) {
+    if (nan_2g_supported) {
+        tlvs = addTlv(NAN_TLV_TYPE_24G_CHANNEL,
+                          sizeof(u32),
+                          (const u8*)&freq_24g, tlvs);
+    }
+    if (nan_5g_supported) {
         tlvs = addTlv(NAN_TLV_TYPE_5G_CHANNEL,
-                      sizeof(u32),
-                      (const u8*)&pReq->channel_5g_val, tlvs);
+                        sizeof(u32),
+                        (const u8*)&freq_5g, tlvs);
     }
     if (pReq->config_dw.config_2dot4g_dw_band) {
         tlvs = addTlv(NAN_TLV_TYPE_2G_COMMITTED_DW,
@@ -659,16 +687,18 @@ wifi_error NanCommand::putNanEnable(transaction_id id, const NanEnableRequest *p
             return WIFI_ERROR_INVALID_ARGS;
         }
 
-        if (mMsg.put_u32(QCA_WLAN_VENDOR_ATTR_NAN_DISC_24GHZ_BAND_FREQ,
-                           freq_24g)) {
-            ALOGE("%s: put attr error", __func__);
-            cleanup();
-            return WIFI_ERROR_INVALID_ARGS;
+        if (nan_2g_supported) {
+            if (mMsg.put_u32(QCA_WLAN_VENDOR_ATTR_NAN_DISC_24GHZ_BAND_FREQ,
+                               freq_24g)) {
+                ALOGE("%s: put attr error", __func__);
+                cleanup();
+                return WIFI_ERROR_INVALID_ARGS;
+            }
         }
 
-        if (pReq->config_5g_channel) {
+        if (nan_5g_supported) {
             if (mMsg.put_u32(QCA_WLAN_VENDOR_ATTR_NAN_DISC_5GHZ_BAND_FREQ,
-                               pReq->channel_5g_val)) {
+                               freq_5g)) {
                 ALOGE("%s: put attr error", __func__);
                 cleanup();
                 return WIFI_ERROR_INVALID_ARGS;
