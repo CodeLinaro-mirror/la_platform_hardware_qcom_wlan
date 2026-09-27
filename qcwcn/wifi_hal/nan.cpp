@@ -220,7 +220,6 @@ wifi_error nan_disable_request(transaction_id id,
             t_nanCommand->deallocSvcParams();
             t_nanCommand->setNanDisabled();
         }
-        secure_nan_cache_flush(info);
     }
 
 cleanup:
@@ -1597,11 +1596,16 @@ wifi_error nan_data_request_initiator(transaction_id id,
     struct nlattr *nlData, *nlCfgQos;
     NanCommand *nanCommand = NULL;
     NanCommand *t_nanCommand = NULL;
+    interface_info *ifaceInfo = getIfaceInfo(iface);
     wifi_handle wifiHandle = getWifiHandle(iface);
     hal_info *info = getHalInfo(wifiHandle);
 #ifdef WPA_PASN_LIB
     struct ptksa_cache_entry *entry = NULL;
 #endif
+    if (!ifaceInfo) {
+        ALOGE("%s: null iface handle", __FUNCTION__);
+        return WIFI_ERROR_INVALID_ARGS;
+    }
     if (msg == NULL)
         return WIFI_ERROR_INVALID_ARGS;
 
@@ -1818,12 +1822,17 @@ wifi_error nan_data_indication_response(transaction_id id,
     struct nlattr *nlData, *nlCfgQos;
     NanCommand *nanCommand = NULL;
     NanCommand *t_nanCommand = NULL;
+    interface_info *ifaceInfo = getIfaceInfo(iface);
     wifi_handle wifiHandle = getWifiHandle(iface);
     hal_info *info = getHalInfo(wifiHandle);
 #ifdef WPA_PASN_LIB
     struct ptksa_cache_entry *entry = NULL;
     struct nan_pairing_peer_info *peer = NULL;
 #endif
+    if (!ifaceInfo) {
+        ALOGE("%s: null iface handle", __FUNCTION__);
+        return WIFI_ERROR_INVALID_ARGS;
+    }
 
     if (msg == NULL)
         return WIFI_ERROR_INVALID_ARGS;
@@ -2638,6 +2647,7 @@ void NanCommand::allocSvcParams()
             deallocSvcParams();
             goto end;
         }
+        memset(mStorePubParams, 0, mNanMaxPublishes*sizeof(NanStoreSvcParams));
         ALOGV("%s: Allocated the Publish pool for max %d entries",
               __FUNCTION__, mNanMaxPublishes);
     }
@@ -2649,6 +2659,7 @@ void NanCommand::allocSvcParams()
             deallocSvcParams();
             goto end;
         }
+        memset(mStoreSubParams, 0, mNanMaxSubscribes*sizeof(NanStoreSvcParams));
         ALOGV("%s: Allocated the Subscribe pool for max %d entries",
               __FUNCTION__, mNanMaxSubscribes);
     }
@@ -2677,6 +2688,7 @@ void NanCommand::reallocSvcParams(NanRole pool)
                 deallocSvcParams();
                 goto end;
             }
+            memset(mStorePubParams, 0, mNanMaxPublishes*sizeof(NanStoreSvcParams));
             ALOGV("%s: Reallocated the Publish pool for max %d entries",
                    __FUNCTION__, mNanMaxPublishes);
         }
@@ -2691,6 +2703,7 @@ void NanCommand::reallocSvcParams(NanRole pool)
                 deallocSvcParams();
                 goto end;
             }
+            memset(mStoreSubParams, 0, mNanMaxSubscribes*sizeof(NanStoreSvcParams));
             ALOGV("%s: Reallocated the Subscribe pool for max %d entries",
                   __FUNCTION__, mNanMaxSubscribes);
         }
