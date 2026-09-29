@@ -64,7 +64,11 @@ int nan_pairing_initiator_pmksa_cache_add(struct rsn_pmksa_cache *pmksa,
                                           u32 pmk_len)
 {
     if (pmksa_cache_add(pmksa, pmk, pmk_len, NULL, NULL, 0, bssid, own_addr,
+#ifdef WPA_KEY_MGMT_EPPKE
+                        NULL, WPA_KEY_MGMT_SAE, NULL, 0))
+#else
                         NULL, WPA_KEY_MGMT_SAE, 0))
+#endif
           return 0;
     return -1;
 }
@@ -84,7 +88,11 @@ int nan_pairing_initiator_pmksa_cache_get(struct rsn_pmksa_cache *pmksa,
 
 void nan_pairing_initiator_pmksa_cache_flush(struct rsn_pmksa_cache *pmksa)
 {
+#ifdef WPA_KEY_MGMT_EPPKE
+    return pmksa_cache_flush(pmksa, NULL, NULL, 0, false, NULL);
+#else
     return pmksa_cache_flush(pmksa, NULL, NULL, 0, false);
+#endif
 }
 
 void NanCommand::notifyPairingInitiatorResponse(transaction_id id, u32 pairing_id)
