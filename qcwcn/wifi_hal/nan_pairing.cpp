@@ -62,7 +62,7 @@ static u16 sda_get_service_info_offset(const u8 *buf, size_t buf_len, u8 window)
     }
 
     if (buf_len < (NAN_SD_ATTR_SERVICE_ID_LEN + 3)) {
-        ALOGE("SDA buffer too short %d", buf_len);
+        ALOGE("SDA buffer too short %zu", buf_len);
         return offset;
     }
     buf += NAN_SD_ATTR_SERVICE_ID_LEN + 2;
@@ -125,7 +125,7 @@ static bool is_sda_valid(const u8 *buf, size_t buf_len)
     ALOGI("%s: Validate SD attribute length %d", __FUNCTION__, attr_len);
 
     if (attr_len < NAN_SD_ATTR_MIN_LEN - 3 || buf_len < attr_len) {
-        ALOGE("%s: Invalid attribute length attr_len %d, buf_len %d",
+        ALOGE("%s: Invalid attribute length attr_len %d, buf_len %zu",
               __FUNCTION__, attr_len, buf_len);
         return false;
     }
@@ -208,7 +208,7 @@ static bool is_sdea_valid(const u8 *buf, size_t buf_len)
     ALOGI("Validate SDE attribute, length %d", attr_len);
 
     if (attr_len < NAN_SDE_ATTR_MIN_LEN || buf_len < attr_len) {
-        ALOGE("%s: Invalid attribute length in SDEA attr_len %d, buf_len %d",
+        ALOGE("%s: Invalid attribute length in SDEA attr_len %d, buf_len %zu",
               __FUNCTION__, attr_len, buf_len);
         return false;
     }
@@ -435,7 +435,7 @@ void nan_process_followup_frame(wifi_handle handle, const u8 *buf,
     memset(&npba, 0, sizeof(NanFWBootstrappingParams));
 
     if (len < 5) {
-        ALOGE("%s: Frame length too short %d", __FUNCTION__, len);
+        ALOGE("%s: Frame length too short %zu", __FUNCTION__, len);
         return;
     }
     pos = (u8 *)buf + 4;
@@ -449,7 +449,7 @@ void nan_process_followup_frame(wifi_handle handle, const u8 *buf,
         u16 attrLen = WPA_GET_LE16(pos + 1);
 
         if (!attrLen || len < (attrLen + 3)) {
-            ALOGE("%s: SDF Invalid Frame: framelen = %d attrId = 0x%x attrlen = %d",
+            ALOGE("%s: SDF Invalid Frame: framelen = %zu attrId = 0x%x attrlen = %d",
                   __FUNCTION__, len, attrId, attrLen);
             return;
         }
@@ -794,9 +794,23 @@ void nan_rx_mgmt_auth(wifi_handle handle, const u8 *frame, size_t len)
                 nan_csia *csia = (nan_csia *)nan_attr_ie;
                 peer->csia_cap_info = csia->caps;
             }
+
+            nan_attr_ie = nan_get_attr_from_ies(mgmt->u.auth.variable,
+                             len - offsetof(struct ieee80211_mgmt, u.auth.variable),
+                             NAN_ATTR_ID_NIRA);
+            if (nan_attr_ie) {
+                nan_nira *nira = (nan_nira *)nan_attr_ie;
+                nan_cache_peer_nira(peer, nira->nonce_tag,
+                                    &nira->nonce_tag[NAN_IDENTITY_NONCE_LEN]);
+            }
+
             ptksa_cache_add(info->secure_nan->ptksa, info->secure_nan->own_addr,
                             peer->bssid, pasn_get_cipher(pasn), nanPMKLifetime,
+#ifdef PTKSA_ADD_WITH_AUTH_ALG
+                            pasn_get_ptk(pasn), NULL, NULL, pasn_get_akmp(pasn), 0);
+#else
                             pasn_get_ptk(pasn), NULL, NULL, pasn_get_akmp(pasn));
+#endif
             memset(pasn_get_ptk(pasn), 0, sizeof(struct wpa_ptk));
         } else if (ret == -1 || mgmt->u.auth.status_code) {
             NanPairingConfirmInd evt;
@@ -837,7 +851,12 @@ nan_pairing_add_peer_to_list(struct wpa_secure_nan *secure_nan, u8 *mac)
            entry->pairing_instance_id = secure_nan->pairing_id++;
            pasn_register_callbacks(entry->pasn, secure_nan->cb_ctx,
                                    nan_send_tx_mgmt,
+#ifdef PASN_CALLBACKS_WITH_EPPKE
+                                   nan_pairing_validate_custom_pmkid, NULL,
+                                   NULL);
+#else
                                    nan_pairing_validate_custom_pmkid);
+#endif
            return entry;
        }
     }
@@ -860,7 +879,11 @@ nan_pairing_add_peer_to_list(struct wpa_secure_nan *secure_nan, u8 *mac)
     }
 
     pasn_register_callbacks(mentry->pasn, secure_nan->cb_ctx, nan_send_tx_mgmt,
+#ifdef PASN_CALLBACKS_WITH_EPPKE
+                            nan_pairing_validate_custom_pmkid, NULL, NULL);
+#else
                             nan_pairing_validate_custom_pmkid);
+#endif
     wpa_pasn_reset(mentry->pasn);
     add_to_list(&mentry->list, &secure_nan->peers);
     return mentry;
@@ -1109,7 +1132,7 @@ int nan_send_tx_mgmt(void *ctx, const u8 *frame_buf, size_t frame_len,
 
     mgmt = (struct ieee80211_mgmt *)frame_buf;
     if (!mgmt || frame_len < offsetof(struct ieee80211_mgmt, u.auth.variable)) {
-        ALOGE("%s: Invalid frame buf: len=%d \n", __FUNCTION__, frame_len);
+        ALOGE("%s: Invalid frame buf: len=%zu \n", __FUNCTION__, frame_len);
         return -1;
     }
 
@@ -1137,7 +1160,11 @@ int nan_send_tx_mgmt(void *ctx, const u8 *frame_buf, size_t frame_len,
         ptksa_cache_add(info->secure_nan->ptksa, info->secure_nan->own_addr,
                         peer->bssid,pasn_get_cipher(pasn), 43200,
                         pasn_get_ptk(pasn), NULL, NULL,
+#ifdef PTKSA_ADD_WITH_AUTH_ALG
+                        pasn_get_akmp(pasn), 0);
+#else
                         pasn_get_akmp(pasn));
+#endif
         nan_pairing_set_keys_from_cache(handle, info->secure_nan->own_addr,
                                         peer->bssid,pasn_get_cipher(pasn),
                                         pasn_get_akmp(pasn), peer->peer_role);
@@ -1175,7 +1202,7 @@ wifi_error nan_get_pairing_tk(transaction_id id,
                             msg->bssid, WPA_CIPHER_NONE);
     if (entry) {
         if (sizeof(msg->tk) < entry->ptk.tk_len) {
-            ALOGE("%s: TK length invalid. len = %d", __FUNCTION__,
+            ALOGE("%s: TK length invalid. len = %zu", __FUNCTION__,
                   entry->ptk.tk_len);
             return WIFI_ERROR_UNKNOWN;
         }
@@ -1858,6 +1885,7 @@ int nan_pairing_set_keys_from_cache(wifi_handle handle, u8 *src_addr, u8 *bssid,
     ALOGD("PASN:" MACSTR "present in PTKSA cache",
           MAC2STR(bssid));
 
+    nan_flush_peer_alias_key_by_nik(info, peer);
     nan_pairing_set_key(info, alg, bssid, 0, 1, NULL, 0, tk, tk_len,
                         KEY_FLAG_PAIRWISE_RX_TX);
 
@@ -1930,12 +1958,13 @@ int nan_pairing_set_keys_from_cache(wifi_handle handle, u8 *src_addr, u8 *bssid,
                    pasn_get_pmk_len(pasn));
             evt.npk_security_association.npk.pmk_len = pasn_get_pmk_len(pasn);
         } else {
-            ALOGE("%s: Invalid pmk len: %d", __FUNCTION__, pasn_get_pmk_len(pasn));
+            ALOGE("%s: Invalid pmk len: %zu", __FUNCTION__, pasn_get_pmk_len(pasn));
         }
         wpa_pasn_reset(pasn);
         nanCommand->handleNanPairingConfirm(&evt);
         peer->is_paired = true;
         peer->is_pairing_in_progress = false;
+        nan_pairing_remove_peers_with_nik(info, peer->peer_nik, peer->bssid);
     }
     return WIFI_SUCCESS;
 }
@@ -2706,7 +2735,7 @@ void nan_pairing_derive_grp_keys(hal_info *info, u8* addr, u8 cipher_caps)
             goto fail;
         }
     } else {
-        ALOGE("%s: unsupported IGTK len %d", __FUNCTION__, grp_key->igtk_len);
+        ALOGE("%s: unsupported IGTK len %zu", __FUNCTION__, grp_key->igtk_len);
         goto fail;
     }
 
@@ -2716,7 +2745,7 @@ void nan_pairing_derive_grp_keys(hal_info *info, u8* addr, u8 cipher_caps)
             goto fail;
         }
     } else {
-        ALOGE("%s: unsupported BIGTK len %d", __FUNCTION__, grp_key->bigtk_len);
+        ALOGE("%s: unsupported BIGTK len %zu", __FUNCTION__, grp_key->bigtk_len);
         goto fail;
     }
 
@@ -2933,11 +2962,72 @@ wifi_error nan_pairing_end(transaction_id id,
 
     peer = nan_pairing_get_peer_from_id(info->secure_nan, msg->pairing_instance_id);
     if (peer) {
+        peer->is_pairing_in_progress = false;
+        ptksa_cache_flush(info->secure_nan->ptksa, peer->bssid,
+                          WPA_CIPHER_NONE);
         nan_pairing_set_key(info, WPA_ALG_NONE, peer->bssid, 0, 0, NULL, 0,
                             NULL, 0, KEY_FLAG_PAIRWISE);
         nan_pairing_delete_peer_from_list(info->secure_nan, peer->bssid);
     }
     return WIFI_SUCCESS;
+}
+
+void nan_cache_peer_nira(struct nan_pairing_peer_info *entry,
+                         u8 *nira_nonce, u8 *nira_tag)
+{
+    if (!entry || !nira_nonce || !nira_tag)
+        return;
+
+    memcpy(entry->nira_nonce, nira_nonce, NAN_IDENTITY_NONCE_LEN);
+    memcpy(entry->nira_tag, nira_tag, NAN_IDENTITY_TAG_LEN);
+    entry->is_nira_valid = true;
+}
+
+void nan_flush_peer_alias_key_by_nik(hal_info *info,
+                                     struct nan_pairing_peer_info *c_entry)
+{
+    struct nan_pairing_peer_info *entry, *tmp;
+    int ret;
+    u8 tag[NAN_MAX_HASH_LEN];
+    u8 data[NIR_STR_LEN + NAN_IDENTITY_NONCE_LEN + ETH_ALEN];
+    struct wpa_secure_nan *secure_nan = info->secure_nan;
+
+    if (!c_entry->is_paired || !c_entry->is_nira_valid) {
+        ALOGV("%s Peer " MACSTR " not paired yet or NIRA invalid",
+              __FUNCTION__, MAC2STR(c_entry->bssid));
+        return;
+    }
+
+    memset(tag, 0, sizeof(tag));
+    memset(data, 0, sizeof(data));
+    memcpy(data, "NIR", NIR_STR_LEN);
+    memcpy(&data[NIR_STR_LEN], c_entry->bssid, ETH_ALEN);
+    memcpy(&data[NIR_STR_LEN + ETH_ALEN], c_entry->nira_nonce,
+              NAN_IDENTITY_NONCE_LEN);
+
+    list_for_each_entry_safe(entry, tmp, &info->secure_nan->peers, list) {
+        if (is_zero_nan_identity_key(entry->peer_nik) ||
+            (memcmp(entry->bssid, c_entry->bssid, ETH_ALEN) == 0))
+            continue;
+
+        ret = hmac_sha256(entry->peer_nik, NAN_IDENTITY_KEY_LEN,
+                          data, sizeof(data), tag);
+        if (ret < 0) {
+            ALOGV("%s Could not derive NIRA Tag, retval = %d",
+                  __FUNCTION__, ret);
+            continue;
+        }
+        if (memcmp(tag, c_entry->nira_tag, NAN_IDENTITY_TAG_LEN) != 0)
+            continue;
+
+        memcpy(c_entry->peer_nik, entry->peer_nik, NAN_IDENTITY_KEY_LEN);
+        ptksa_cache_flush(secure_nan->ptksa, entry->bssid, WPA_CIPHER_NONE);
+        nan_pairing_set_key(info, WPA_ALG_NONE, entry->bssid, 0, 0, NULL, 0,
+                            NULL, 0, KEY_FLAG_PAIRWISE);
+        ALOGD("%s Flush keys of stale peer " MACSTR " -new active peer:" MACSTR,
+              __FUNCTION__, MAC2STR(entry->bssid), MAC2STR(c_entry->bssid));
+        return;
+    }
 }
 
 #else  /* WPA_PASN_LIB */

@@ -113,6 +113,17 @@ AC_ARG_WITH([wifi-hal-ctrl-includes],
      [CPPFLAGS="$CPPFLAGS -idirafter $withval"],
      wifi-hal-ctrl-includes=no)
 
+AC_ARG_WITH([pasn-lib-includes],
+     AC_HELP_STRING([--with-pasn-lib-includes=@<:@dir@:>@],
+        [Specify the location of the pasn headers]),
+     [PASN_CFLAGS="-DCONFIG_PASN -DIEEE8021X_EAPOL -DCONFIG_PTKSA_CACHE -DCONFIG_SAE -DCONFIG_ECC -DCONFIG_SHA256 -DCONFIG_SHA384 -DCONFIG_NO_VLAN -DCONFIG_NO_RADIUS"
+      PASN_INCLUDES="-idirafter $withval"
+      pasn_lib_includes=yes],
+     [pasn_lib_includes=no])
+AM_CONDITIONAL([USE_PASN_LIB], [test "x$pasn_lib_includes" != "xno"])
+AC_SUBST([PASN_CFLAGS])
+AC_SUBST([PASN_INCLUDES])
+
 AC_SUBST([CPPFLAGS])
 
 AC_CONFIG_FILES([ \
