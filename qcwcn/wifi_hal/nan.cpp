@@ -2533,6 +2533,7 @@ void NanCommand::allocSvcParams()
             deallocSvcParams();
             goto end;
         }
+        memset(mStorePubParams, 0, mNanMaxPublishes*sizeof(NanStoreSvcParams));
         ALOGV("%s: Allocated the Publish pool for max %d entries",
               __FUNCTION__, mNanMaxPublishes);
     }
@@ -2544,6 +2545,7 @@ void NanCommand::allocSvcParams()
             deallocSvcParams();
             goto end;
         }
+        memset(mStoreSubParams, 0, mNanMaxSubscribes*sizeof(NanStoreSvcParams));
         ALOGV("%s: Allocated the Subscribe pool for max %d entries",
               __FUNCTION__, mNanMaxSubscribes);
     }
@@ -2572,6 +2574,7 @@ void NanCommand::reallocSvcParams(NanRole pool)
                 deallocSvcParams();
                 goto end;
             }
+            memset(mStorePubParams, 0, mNanMaxPublishes*sizeof(NanStoreSvcParams));
             ALOGV("%s: Reallocated the Publish pool for max %d entries",
                    __FUNCTION__, mNanMaxPublishes);
         }
@@ -2586,6 +2589,7 @@ void NanCommand::reallocSvcParams(NanRole pool)
                 deallocSvcParams();
                 goto end;
             }
+            memset(mStoreSubParams, 0, mNanMaxSubscribes*sizeof(NanStoreSvcParams));
             ALOGV("%s: Reallocated the Subscribe pool for max %d entries",
                   __FUNCTION__, mNanMaxSubscribes);
         }
