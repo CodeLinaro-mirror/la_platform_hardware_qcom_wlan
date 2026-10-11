@@ -810,12 +810,37 @@ static int parse_get_feature_info(struct resp_info *info, struct nlattr *vendata
 {
 	struct nlattr *tb_vendor[NUM_QCA_WLAN_VENDOR_FEATURES + 1];
 	struct nlattr *attr;
-	nla_parse(tb_vendor, NUM_QCA_WLAN_VENDOR_FEATURES,
-		  vendata, datalen, NULL);
+
+	if (nla_parse(tb_vendor, NUM_QCA_WLAN_VENDOR_FEATURES,
+		      vendata, datalen, NULL)) {
+		wpa_printf(MSG_ERROR, "%s: nla_parse failed", __func__);
+		return -1;
+	}
+
 	attr = tb_vendor[QCA_WLAN_VENDOR_ATTR_FEATURE_FLAGS];
 	if (attr) {
-		snprintf(info->reply_buf, info->reply_buf_len, "%u",
-			 nla_get_u32(attr));
+		u8 *flags = (u8 *) nla_data(attr);
+		int flags_len = nla_len(attr);
+		size_t buf_len = info->reply_buf_len;
+		int i, pos = 0, ret;
+
+		if (flags_len <= 0 || buf_len < (size_t) flags_len * 2 + 1) {
+			wpa_printf(MSG_ERROR, "%s: reply_buf too small for %d bytes",
+				   __func__, flags_len);
+			return -ENOMEM;
+		}
+
+		for (i = 0; i < flags_len; i++) {
+			ret = os_snprintf(info->reply_buf + pos,
+					   info->reply_buf_len - pos, "%02x", flags[i]);
+			if (os_snprintf_error(info->reply_buf_len - pos, ret)) {
+				wpa_printf(MSG_ERROR, "%s:Fail to print buffer",
+					   __func__);
+				return -ENOMEM;
+			}
+			pos += ret;
+		}
+		info->reply_buf[pos] = '\0';
 		wpa_printf(MSG_DEBUG, "%s: driver supported feature info  = %s",
 			   __func__, info->reply_buf);
 	} else {
@@ -8214,7 +8239,7 @@ int wpa_driver_nl80211_driver_cmd(void *priv, char *cmd, char *buf,
 		        return -1;
 		}
 
-		return WPA_DRIVER_OEM_STATUS_SUCCESS;
+		return strlen(buf);
 	} else if ((ret = check_for_twt_cmd(cmd)) != TWT_CMD_NOT_EXIST) {
 		enum qca_wlan_twt_operation twt_oper = ret;
 		u8 is_twt_feature_supported = 0;
