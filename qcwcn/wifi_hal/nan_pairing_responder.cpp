@@ -369,6 +369,12 @@ int nan_pairing_handle_pasn_auth(wifi_handle handle, const u8 *data, size_t len)
 
         entry = nan_pairing_get_peer_from_list(info->secure_nan,
                                                (u8 *)mgmt->sa);
+        if (entry && status_code != 0) {
+            return nan_pairing_handle_auth_failure(handle,
+                                                   entry,
+                                                   NAN_STATUS_PROTOCOL_FAILURE);
+        }
+
         if (nan_attr_ie) {
             if (!entry || !entry->is_paired) {
                 ALOGI("PASN Responder: NIRA present, but peer entry not found");
@@ -442,6 +448,7 @@ int nan_pairing_handle_pasn_auth(wifi_handle handle, const u8 *data, size_t len)
             memcpy(pairingReqInd.nira.nonce, nira_nonce, NAN_IDENTITY_NONCE_LEN);
             memcpy(pairingReqInd.nira.tag, nira_tag, NAN_IDENTITY_TAG_LEN);
             entry->is_paired = true;
+            nan_cache_peer_nira(entry, nira_nonce, nira_tag);
         } else {
             pairingReqInd.nan_pairing_request_type = NAN_PAIRING_SETUP;
         }
@@ -458,6 +465,13 @@ int nan_pairing_handle_pasn_auth(wifi_handle handle, const u8 *data, size_t len)
             ALOGE("PASN Responder: M3 from different peer");
             return WIFI_SUCCESS;
         }
+
+        if (status_code != 0) {
+            return nan_pairing_handle_auth_failure(handle,
+                                                   entry,
+                                                   NAN_STATUS_PROTOCOL_FAILURE);
+        }
+
         pasn = entry->pasn;
         ret = handle_auth_pasn_3(pasn, info->secure_nan->own_addr,
                                  (u8 *)mgmt->sa, mgmt, len);
@@ -500,6 +514,8 @@ int nan_pairing_handle_pasn_auth(wifi_handle handle, const u8 *data, size_t len)
             } else {
                 ALOGE("%s: Invalid pmk len: %zu", __FUNCTION__, pasn_get_pmk_len(pasn));
             }
+
+            nan_pairing_remove_peers_with_nik(info, entry->peer_nik, entry->bssid);
             wpa_pasn_reset(pasn);
             nanCommand->handleNanPairingConfirm(&evt);
             entry->is_paired = true;

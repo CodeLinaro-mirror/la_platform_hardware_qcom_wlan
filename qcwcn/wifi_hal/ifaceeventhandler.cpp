@@ -77,7 +77,12 @@ wifi_error wifi_set_iface_event_handler(wifi_request_id id,
                                         wifi_interface_handle iface,
                                         wifi_event_handler eh)
 {
+    interface_info *ifaceInfo = getIfaceInfo(iface);
     wifi_handle wifiHandle = getWifiHandle(iface);
+    if (!ifaceInfo) {
+        ALOGE("%s: null iface handle", __FUNCTION__);
+        return WIFI_ERROR_INVALID_ARGS;
+    }
 
     /* Check if a similar request to set iface event handler was made earlier.
      * Right now we don't differentiate between the case where (i) the new
