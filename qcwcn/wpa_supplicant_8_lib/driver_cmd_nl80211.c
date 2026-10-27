@@ -7959,15 +7959,25 @@ nlmsg_fail:
 	return ret;
 }
 
-int wpa_driver_nl80211_driver_cmd(void *priv, char *cmd, char *buf,
-				  size_t buf_len )
+/*
+ * wpa_driver_nl80211_driver_cmd_dispatch - named-command dispatcher
+ *
+ * Handles all named DRIVER commands. Sets *handled = true if the command
+ * was recognised (regardless of success/failure), or *handled = false if
+ * the command is unknown so the caller can fall through to the ioctl path.
+ *
+ * Called from wpa_driver_nl80211_driver_cmd() and from
+ * wpa_driver_nl80211_driver_cmd_qca() in driver_nl80211_qca.c.
+ */
+int wpa_driver_nl80211_driver_cmd_dispatch(void *priv, char *cmd, char *buf,
+					   size_t buf_len, bool *handled)
 {
 	struct i802_bss *bss = priv;
 	struct wpa_driver_nl80211_data *drv = NULL;
 	struct wpa_driver_nl80211_data *driver;
-	struct ifreq ifr;
-	android_wifi_priv_cmd priv_cmd;
 	int ret = 0, status = 0, lib_n = 0;
+
+	*handled = true;
 
 	if (bss) {
 		drv = bss->drv;
@@ -8013,13 +8023,6 @@ int wpa_driver_nl80211_driver_cmd(void *priv, char *cmd, char *buf,
 			linux_set_iface_flags(drv->global->ioctl_sock, driver->first_bss->ifname, 1);
 			wpa_msg(drv->ctx, MSG_INFO, WPA_EVENT_DRIVER_STATE "STARTED");
 		}
-	} else if (os_strcasecmp(cmd, "MACADDR") == 0) {
-		u8 macaddr[ETH_ALEN] = {};
-
-		ret = linux_get_ifhwaddr(drv->global->ioctl_sock, bss->ifname, macaddr);
-		if (!ret)
-			ret = os_snprintf(buf, buf_len,
-					  "Macaddr = " MAC_ADDR_STR "\n", MAC_ADDR_ARRAY(macaddr));
 	} else if (os_strncasecmp(cmd, "SET_CONGESTION_REPORT ", 22) == 0) {
 		return wpa_driver_cmd_set_congestion_report(priv, cmd + 22);
 	} else if (os_strncasecmp(cmd, "SET_TXPOWER ", 12) == 0) {
@@ -8409,56 +8412,99 @@ int wpa_driver_nl80211_driver_cmd(void *priv, char *cmd, char *buf,
 		 */
 		cmd += 12;
 		return wpa_driver_get_ant_div_conf(bss, cmd, buf, buf_len);
-	} else { /* Use private command */
-		memset(&ifr, 0, sizeof(ifr));
-		memset(&priv_cmd, 0, sizeof(priv_cmd));
-
-		if (strlen(cmd) + 1 > buf_len) {
-			wpa_printf(MSG_ERROR, "%s: cmd length is invalid\n",
-				   __func__);
-			return -EINVAL;
-		}
-		os_memcpy(buf, cmd, strlen(cmd) + 1);
-		os_strlcpy(ifr.ifr_name, bss->ifname, IFNAMSIZ);
-
-		priv_cmd.buf = buf;
-		priv_cmd.used_len = buf_len;
-		priv_cmd.total_len = buf_len;
-		ifr.ifr_data = &priv_cmd;
-
-		if ((ret = ioctl(drv->global->ioctl_sock, SIOCDEVPRIVATE + 1, &ifr)) < 0) {
-			wpa_printf(MSG_ERROR, "%s: failed to issue private commands, ret:%d, errno:%d\n", __func__, ret, errno);
-		} else {
-			drv_errors = 0;
-			if((os_strncasecmp(cmd, "SETBAND", 7) == 0) &&
-				ret == DO_NOT_SEND_CHANNEL_CHANGE_EVENT) {
-				return 0;
-			}
-
-			ret = 0;
-			if ((os_strcasecmp(cmd, "LINKSPEED") == 0) ||
-			    (os_strcasecmp(cmd, "RSSI") == 0) ||
-			    (os_strstr(cmd, "GET") != NULL))
-				ret = strlen(buf);
-			else if (os_strcasecmp(cmd, "P2P_DEV_ADDR") == 0)
-				wpa_printf(MSG_DEBUG, "%s: P2P: Device address ("MACSTR")",
-					__func__, MAC2STR(buf));
-			else if (os_strcasecmp(cmd, "P2P_SET_PS") == 0)
-				wpa_printf(MSG_DEBUG, "%s: P2P: %s ", __func__, buf);
-			else if (os_strcasecmp(cmd, "P2P_SET_NOA") == 0)
-				wpa_printf(MSG_DEBUG, "%s: P2P: %s ", __func__, buf);
-			else if (os_strcasecmp(cmd, "STOP") == 0) {
-				wpa_printf(MSG_DEBUG, "%s: %s ", __func__, buf);
-				dl_list_for_each(driver, &drv->global->interfaces, struct wpa_driver_nl80211_data, list) {
-					linux_set_iface_flags(drv->global->ioctl_sock, driver->first_bss->ifname, 0);
-					wpa_msg(drv->ctx, MSG_INFO, WPA_EVENT_DRIVER_STATE "STOPPED");
-				}
-			}
-			else
-				wpa_printf(MSG_DEBUG, "%s %s len = %d, %zu", __func__, buf, ret, buf_len);
-			wpa_driver_notify_country_change(drv->ctx, cmd);
-		}
+	} else {
+		/* Command not recognised — signal caller to try ioctl path */
+		*handled = false;
+		return 0;
 	}
+	return ret;
+}
+
+int wpa_driver_nl80211_driver_cmd(void *priv, char *cmd, char *buf,
+				  size_t buf_len )
+{
+	struct i802_bss *bss = priv;
+	struct wpa_driver_nl80211_data *drv = NULL;
+	struct wpa_driver_nl80211_data *driver;
+	struct ifreq ifr;
+	android_wifi_priv_cmd priv_cmd;
+	bool handled = false;
+	int ret = 0;
+
+	ret = wpa_driver_nl80211_driver_cmd_dispatch(priv, cmd, buf, buf_len,
+						     &handled);
+	if (handled)
+		return ret;
+
+	/* Command not recognised — fall through to SIOCDEVPRIVATE+1 ioctl */
+	if (bss)
+		drv = bss->drv;
+
+	if (!drv) {
+		wpa_printf(MSG_ERROR, "%s: drv is NULL for cmd %s\n",
+			   __func__, cmd);
+		return -EINVAL;
+	}
+
+	if (os_strcasecmp(cmd, "MACADDR") == 0) {
+		u8 macaddr[ETH_ALEN] = {};
+
+		ret = linux_get_ifhwaddr(drv->global->ioctl_sock, bss->ifname, macaddr);
+		if (!ret)
+			ret = os_snprintf(buf, buf_len,
+					  "Macaddr = " MAC_ADDR_STR "\n", MAC_ADDR_ARRAY(macaddr));
+		return ret;
+	}
+
+	memset(&ifr, 0, sizeof(ifr));
+	memset(&priv_cmd, 0, sizeof(priv_cmd));
+
+	if (strlen(cmd) + 1 > buf_len) {
+		wpa_printf(MSG_ERROR, "%s: cmd length is invalid\n",
+			   __func__);
+		return -EINVAL;
+	}
+	os_memcpy(buf, cmd, strlen(cmd) + 1);
+	os_strlcpy(ifr.ifr_name, bss->ifname, IFNAMSIZ);
+
+	priv_cmd.buf = buf;
+	priv_cmd.used_len = buf_len;
+	priv_cmd.total_len = buf_len;
+	ifr.ifr_data = &priv_cmd;
+
+	if ((ret = ioctl(drv->global->ioctl_sock, SIOCDEVPRIVATE + 1, &ifr)) < 0) {
+		wpa_printf(MSG_ERROR, "%s: failed to issue private commands, ret:%d, errno:%d\n", __func__, ret, errno);
+	} else {
+		drv_errors = 0;
+		if((os_strncasecmp(cmd, "SETBAND", 7) == 0) &&
+			ret == DO_NOT_SEND_CHANNEL_CHANGE_EVENT) {
+			return 0;
+		}
+
+		ret = 0;
+		if ((os_strcasecmp(cmd, "LINKSPEED") == 0) ||
+		    (os_strcasecmp(cmd, "RSSI") == 0) ||
+		    (os_strstr(cmd, "GET") != NULL))
+			ret = strlen(buf);
+		else if (os_strcasecmp(cmd, "P2P_DEV_ADDR") == 0)
+			wpa_printf(MSG_DEBUG, "%s: P2P: Device address ("MACSTR")",
+				__func__, MAC2STR(buf));
+		else if (os_strcasecmp(cmd, "P2P_SET_PS") == 0)
+			wpa_printf(MSG_DEBUG, "%s: P2P: %s ", __func__, buf);
+		else if (os_strcasecmp(cmd, "P2P_SET_NOA") == 0)
+			wpa_printf(MSG_DEBUG, "%s: P2P: %s ", __func__, buf);
+		else if (os_strcasecmp(cmd, "STOP") == 0) {
+			wpa_printf(MSG_DEBUG, "%s: %s ", __func__, buf);
+			dl_list_for_each(driver, &drv->global->interfaces, struct wpa_driver_nl80211_data, list) {
+				linux_set_iface_flags(drv->global->ioctl_sock, driver->first_bss->ifname, 0);
+				wpa_msg(drv->ctx, MSG_INFO, WPA_EVENT_DRIVER_STATE "STOPPED");
+			}
+		}
+		else
+			wpa_printf(MSG_DEBUG, "%s %s len = %d, %zu", __func__, buf, ret, buf_len);
+		wpa_driver_notify_country_change(drv->ctx, cmd);
+	}
+	wpa_printf(MSG_DEBUG, "This debug print is to test coral workflow");
 	return ret;
 }
 
