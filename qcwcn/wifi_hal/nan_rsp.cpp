@@ -690,6 +690,7 @@ int NanCommand::getNanResponse(transaction_id *id, NanResponseMsg *pRsp)
                        pFwRsp->max_queued_transmit_followup_msgs;
             pRsp->body.nan_capabilities.ndp_supported_bands = \
                        pFwRsp->ndp_supported_bands;
+            mNanCommandInstance->mNanSupportedBands = pFwRsp->ndp_supported_bands;
             pRsp->body.nan_capabilities.cipher_suites_supported = \
                        pFwRsp->cipher_suites_supported;
             pRsp->body.nan_capabilities.max_scid_len = \

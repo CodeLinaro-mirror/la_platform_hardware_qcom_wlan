@@ -1618,7 +1618,14 @@ unload:
                 free(info->driver_supported_features.flags);
                 info->driver_supported_features.flags = NULL;
             }
+            if (info->interfaces) {
+                for (int i = 0; i < info->num_interfaces; i++)
+                    free(info->interfaces[i]);
+                free(info->interfaces);
+            }
             free(info);
+            // global_handle_ needs to be reset NULL if wifihal start fail
+            *handle = NULL;
         }
     }
     return ret;

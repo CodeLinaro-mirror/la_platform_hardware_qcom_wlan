@@ -119,6 +119,7 @@ private:
     std::vector<std::pair<transaction_id, NanResponseMsg> > mNanResponseMsgVec;
     VendorNanCallbackHandler mVendorHandler;
     u8 mNanFollowupRxSupport;
+    u32 mNanSupportedBands;
     bool mNanEnabled;
 
     //Function to check the initial few bytes of data to
@@ -272,6 +273,7 @@ public:
     void saveClusterAddr(u8 *mac);
     u8 *getClusterAddr();
     u8 getFollowupRxSupport();
+    u32 getNanSupportedBands();
     void saveServiceId(u8 *service_id, u16 sub_pub_handle,
                         u32 instance_id, NanRole Pool, const u8 *addr);
     u8 *getServiceId(u32 instance_id, NanRole Pool);

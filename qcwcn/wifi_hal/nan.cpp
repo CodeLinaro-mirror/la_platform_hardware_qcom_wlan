@@ -2266,6 +2266,7 @@ NanCommand::NanCommand(wifi_handle handle, int id, u32 vendor_id, u32 subcmd)
     mNanMaxSubscribes = 0;
     mConfigDiscoveryIndications = 0;
     mNanFollowupRxSupport = 0;
+    mNanSupportedBands = NAN_BAND_SUPPORT_2G | NAN_BAND_SUPPORT_5G | NAN_BAND_SUPPORT_6G;
     mNanEnabled = false;
 }
 
@@ -2357,6 +2358,12 @@ u8 *NanCommand::getClusterAddr()
 u8 NanCommand::getFollowupRxSupport()
 {
     return mNanFollowupRxSupport;
+}
+
+/* Get NAN supported bands */
+u32 NanCommand::getNanSupportedBands()
+{
+    return mNanSupportedBands;
 }
 
 /* Set NAN Enabled */
